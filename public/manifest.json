@@ -1,0 +1,15 @@
+{
+  "name": "Простір Коштує",
+  "short_name": "Простір",
+  "description": "Оренда комерційної нерухомості — офіси, рітейл, склади, кафе та гнучкі простори",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0F1117",
+  "theme_color": "#FF6B1A",
+  "orientation": "portrait",
+  "lang": "uk",
+  "icons": [
+    { "src": "/logo-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/logo-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

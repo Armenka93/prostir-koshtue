@@ -1,0 +1,47 @@
+import type { Metadata, Viewport } from 'next'
+import './globals.css'
+
+export const metadata: Metadata = {
+  title: 'Простір Коштує',
+  description: 'Оренда комерційної нерухомості — офіси, рітейл, склади, кафе та гнучкі простори в Одесі',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Простір Коштує',
+  },
+  openGraph: {
+    title: 'Простір Коштує',
+    description: 'Оренда комерційної нерухомості в Одесі',
+    images: ['/og-image.png'],
+  },
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: '#FF6B1A',
+}
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="uk">
+      <head>
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="apple-touch-icon" href="/logo-192.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="mobile-web-app-capable" content="yes" />
+      </head>
+      <body>
+        <div style={{ display: 'flex', justifyContent: 'center', minHeight: '100vh', background: '#060810' }}>
+          <div style={{ width: '100%', maxWidth: 430, background: '#0F1117', minHeight: '100vh', position: 'relative', overflow: 'hidden' }}>
+            {children}
+          </div>
+        </div>
+      </body>
+    </html>
+  )
+}
