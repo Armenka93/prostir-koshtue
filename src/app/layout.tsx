@@ -10,11 +10,6 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'Простір Коштує',
   },
-  openGraph: {
-    title: 'Простір Коштує',
-    description: 'Оренда комерційної нерухомості в Одесі',
-    images: ['/og-image.png'],
-  },
 }
 
 export const viewport: Viewport = {
@@ -23,6 +18,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   themeColor: '#FF6B1A',
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -34,10 +30,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="format-detection" content="telephone=no" />
       </head>
       <body>
-        <div style={{ display: 'flex', justifyContent: 'center', minHeight: '100vh', background: '#060810' }}>
-          <div style={{ width: '100%', maxWidth: 430, background: '#0F1117', minHeight: '100vh', position: 'relative', overflow: 'hidden' }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          minHeight: '100dvh',
+          background: '#060810',
+        }}>
+          <div style={{
+            width: '100%',
+            maxWidth: 430,
+            background: '#0F1117',
+            minHeight: '100dvh',
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
             {children}
           </div>
         </div>
