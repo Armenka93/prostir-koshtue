@@ -1,7 +1,8 @@
 'use client'
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { ListingData, FeedData, User } from '@/types'
-import { MOCK_LISTINGS, getMockFeed } from '@/lib/mockData'
+import { MOCK_LISTINGS } from '@/lib/mockData'
+import { buildFeed } from '@/lib/listing-logic'
 import { loadSession, saveSession, clearSession, loadFavs, saveFavs, loadUserListings, saveUserListings } from '@/lib/storage'
 
 import SplashScreen from '@/components/SplashScreen'
@@ -35,7 +36,7 @@ export default function AppPage() {
   const [showAll, setShowAll] = useState<{ title: string; items: ListingData[] } | null>(null)
 
   const [allListings, setAllListings] = useState<ListingData[]>([...MOCK_LISTINGS])
-  const [feed, setFeed] = useState<FeedData>(getMockFeed())
+  const [feed, setFeed] = useState<FeedData>(buildFeed(MOCK_LISTINGS))
   const [favs, setFavs] = useState<number[]>([])
 
   const [toastMsg, setToastMsg] = useState('')
@@ -70,11 +71,7 @@ export default function AppPage() {
 
   // ── Rebuild feed ─────────────────────────────────────────────
   useEffect(() => {
-    setFeed({
-      populyarni: [...allListings].sort((a, b) => b.views - a.views).slice(0, 5),
-      novi: allListings.filter(l => l.isNew).slice(0, 6),
-      rekomendovani: allListings.filter(l => l.isFeatured || l.isPromoted).slice(0, 8),
-    })
+    setFeed(buildFeed(allListings))
   }, [allListings])
 
   // ── Save favs on change ──────────────────────────────────────
