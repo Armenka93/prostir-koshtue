@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import ClientOnly from '@/components/ClientOnly'
 
 export const metadata: Metadata = {
   title: 'Простір Коштує',
@@ -47,7 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             position: 'relative',
             overflow: 'hidden',
           }}>
-            {children}
+            <ClientOnly>{children}</ClientOnly>
           </div>
         </div>
       </body>
