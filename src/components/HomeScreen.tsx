@@ -34,9 +34,8 @@ export default function HomeScreen({
   const [showFilters, setShowFilters] = useState(false)
 
   // Build feed from listings using logic system
-  const { state: ptrState, pullY } = usePullToRefresh({
-    onRefresh: onRefresh ?? (() => Promise.resolve()),
-  })
+  const refreshFn = onRefresh ?? (() => Promise.resolve())
+  const { state: ptrState, pullY } = usePullToRefresh({ onRefresh: refreshFn })
 
   const computedFeed = useMemo(() => buildFeed(listings), [listings])
   const { rekomendovani, populyarni, novi } = computedFeed

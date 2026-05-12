@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { User } from '@/types'
-import { getUserChats, getMessages, sendMessage as dbSendMsg, markChatRead, getUnreadCount, type ChatRecord, type MessageRecord } from '@/lib/storage'
+import { getUserChats, getMessages, sendMessage as dbSendMsg, markChatRead, type ChatRecord, type MessageRecord } from '@/lib/storage'
 
 interface Props {
   user: User | null

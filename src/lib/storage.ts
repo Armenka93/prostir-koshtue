@@ -17,9 +17,11 @@ const K = {
 }
 
 function get<T>(key: string, def: T): T {
+  if (typeof window === 'undefined') return def
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def } catch { return def }
 }
 function set(key: string, val: unknown) {
+  if (typeof window === 'undefined') return
   try { localStorage.setItem(key, JSON.stringify(val)) } catch {}
 }
 
@@ -85,7 +87,7 @@ export function getAccount(userId: string): Account | null {
 // ── SESSION ───────────────────────────────────────────────────
 export function saveSession(user: User) { set(K.USER, user) }
 export function loadSession(): User | null { return get<User | null>(K.USER, null) }
-export function clearSession() { localStorage.removeItem(K.USER) }
+export function clearSession() { if (typeof window !== 'undefined') localStorage.removeItem(K.USER) }
 
 // ── FAVOURITES ────────────────────────────────────────────────
 export function loadFavs(userId: string): number[] { return get<number[]>(K.FAVS + userId, []) }

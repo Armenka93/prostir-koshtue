@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import type { User, ListingData } from '@/types'
-import { ADMIN_EMAIL, getAccounts, getFeedbacks, markFeedbackRead, updateAccount, saveSession, loadUserListings, type FeedbackRecord, type Account } from '@/lib/storage'
+import { ADMIN_EMAIL, getAccounts, getFeedbacks, markFeedbackRead, updateAccount, saveSession, type FeedbackRecord } from '@/lib/storage'
 
 interface Props {
   user: User | null

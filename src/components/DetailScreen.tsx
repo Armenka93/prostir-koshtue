@@ -3,6 +3,7 @@ import { useState, useCallback } from 'react'
 import type { ListingData, User } from '@/types'
 import { TYPE_COLORS, maskPhone, formatPhone } from '@/types'
 import ImageGallery from './ImageGallery'
+import { sendMessage as dbSend } from '@/lib/storage'
 
 interface Props {
   listing: ListingData
@@ -259,27 +260,30 @@ export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, 
               <div style={{ textAlign: 'center', padding: '20px 0' }}>
                 <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Повідомлення надіслано!</div>
-                <div style={{ fontSize: 14, color: '#A0A8BC' }}>Власник отримає ваш запит</div>
-                <button onClick={() => { setShowMessage(false); setSent(false) }} style={{ marginTop: 20, padding: '14px 24px', background: '#FF6B1A', border: 'none', borderRadius: 12, color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Закрити</button>
+                <div style={{ fontSize: 14, color: '#A0A8BC', marginBottom: 20 }}>Власник отримає ваш запит у розділі «Чати»</div>
+                <button onClick={() => { setShowMessage(false); setSent(false) }} style={{ padding: '14px 24px', background: '#FF6B1A', border: 'none', borderRadius: 12, color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Закрити</button>
               </div>
             ) : (
               <>
                 <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Написати власнику</div>
-                <div style={{ fontSize: 14, color: '#A0A8BC', marginBottom: 20 }}>{data.title}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-                  <input placeholder="Ваше ім'я *" value={msgForm.name} onChange={e => setMsgForm(f => ({ ...f, name: e.target.value }))}
-                    style={{ width: '100%', background: '#0F1117', border: '1px solid #2A3045', borderRadius: 12, padding: '13px 14px', color: '#fff', fontSize: 14, fontFamily: 'Inter, sans-serif', outline: 'none' }} />
-                  <input placeholder="Телефон *" value={msgForm.phone} onChange={e => setMsgForm(f => ({ ...f, phone: e.target.value }))}
-                    style={{ width: '100%', background: '#0F1117', border: '1px solid #2A3045', borderRadius: 12, padding: '13px 14px', color: '#fff', fontSize: 14, fontFamily: 'Inter, sans-serif', outline: 'none' }} />
-                  <textarea placeholder="Повідомлення" value={msgForm.message} onChange={e => setMsgForm(f => ({ ...f, message: e.target.value }))} rows={3}
-                    style={{ width: '100%', background: '#0F1117', border: '1px solid #2A3045', borderRadius: 12, padding: '13px 14px', color: '#fff', fontSize: 14, fontFamily: 'Inter, sans-serif', outline: 'none', resize: 'none' }} />
-                </div>
-                <button onClick={handleSend} disabled={!msgForm.name || !msgForm.phone || sending} style={{
+                <div style={{ fontSize: 13, color: '#A0A8BC', marginBottom: 16 }}>{data.title}</div>
+                {user && <div style={{ background: '#0F1117', borderRadius: 10, padding: '10px 12px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#FF6B1A,#FFB020)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{user.name?.charAt(0)}</div>
+                  <div><div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{user.name}</div><div style={{ fontSize: 11, color: '#6B7280' }}>{user.phone || user.email}</div></div>
+                </div>}
+                <textarea
+                  placeholder="Ваше повідомлення..."
+                  value={msgForm.message}
+                  onChange={e => setMsgForm(f => ({ ...f, message: e.target.value }))}
+                  rows={4}
+                  style={{ width: '100%', background: '#0F1117', border: '1px solid #2A3045', borderRadius: 12, padding: '13px 14px', color: '#fff', fontSize: 14, fontFamily: 'Inter, sans-serif', outline: 'none', resize: 'none', marginBottom: 12, display: 'block', boxSizing: 'border-box' as const }}
+                />
+                <button onClick={handleSend} disabled={!msgForm.message.trim() || sending} style={{
                   width: '100%', padding: '16px',
-                  background: (!msgForm.name || !msgForm.phone || sending) ? '#6B7280' : 'linear-gradient(135deg, #FF6B1A, #FF8C3A)',
+                  background: (!msgForm.message.trim() || sending) ? '#4B5563' : 'linear-gradient(135deg,#FF6B1A,#FF8C3A)',
                   border: 'none', borderRadius: 14, color: '#fff', fontSize: 16, fontWeight: 700,
-                  cursor: (!msgForm.name || !msgForm.phone || sending) ? 'not-allowed' : 'pointer',
-                }}>{sending ? '⏳ ...' : '📨 Надіслати'}</button>
+                  cursor: (!msgForm.message.trim() || sending) ? 'not-allowed' : 'pointer',
+                }}>{sending ? '⏳ Відправка...' : '📨 Надіслати'}</button>
               </>
             )}
           </div>
