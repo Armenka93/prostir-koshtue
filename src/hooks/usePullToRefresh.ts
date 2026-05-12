@@ -1,48 +1,48 @@
-import { useRef, useCallback, useEffect, useState } from 'react'
+import { useRef, useEffect, useState } from 'react'
 
 interface Options {
   onRefresh: () => Promise<void>
   threshold?: number
-  containerRef?: React.RefObject<HTMLElement>
 }
 
-export function usePullToRefresh({ onRefresh, threshold = 72, containerRef }: Options) {
+export function usePullToRefresh({ onRefresh, threshold = 72 }: Options) {
   const [state, setState] = useState<'idle' | 'pulling' | 'ready' | 'refreshing'>('idle')
   const [pullY, setPullY] = useState(0)
+
   const startY = useRef(0)
   const isDragging = useRef(false)
   const isRefreshing = useRef(false)
+  const currentPullY = useRef(0)
+  const currentState = useRef<'idle' | 'pulling' | 'ready' | 'refreshing'>('idle')
+  const onRefreshRef = useRef(onRefresh)
 
-  const getScrollTop = useCallback(() => {
-    if (containerRef?.current) return containerRef.current.scrollTop
-    return window.scrollY || document.documentElement.scrollTop
-  }, [containerRef])
-
-  const getTarget = useCallback((): EventTarget => {
-    return containerRef?.current ?? window
-  }, [containerRef])
+  // Always keep ref up to date — avoids stale closure
+  useEffect(() => { onRefreshRef.current = onRefresh }, [onRefresh])
 
   useEffect(() => {
-    const target = getTarget()
-
-    const onTouchStart = (e: Event) => {
+    const onTouchStart = (e: TouchEvent) => {
       if (isRefreshing.current) return
-      const touch = (e as TouchEvent).touches[0]
-      startY.current = touch.clientY
+      const scrollTop = window.scrollY || document.documentElement.scrollTop
+      if (scrollTop > 0) return
+      startY.current = e.touches[0].clientY
       isDragging.current = true
     }
 
-    const onTouchMove = (e: Event) => {
+    const onTouchMove = (e: TouchEvent) => {
       if (!isDragging.current || isRefreshing.current) return
-      const touch = (e as TouchEvent).touches[0]
-      const delta = touch.clientY - startY.current
-      const scrollTop = getScrollTop()
+      const delta = e.touches[0].clientY - startY.current
+      const scrollTop = window.scrollY || document.documentElement.scrollTop
 
       if (delta > 0 && scrollTop <= 0) {
         const clamped = Math.min(delta * 0.45, threshold * 1.5)
+        currentPullY.current = clamped
+        const newState = clamped >= threshold ? 'ready' : 'pulling'
+        currentState.current = newState
         setPullY(clamped)
-        setState(clamped >= threshold ? 'ready' : 'pulling')
+        setState(newState)
       } else {
+        currentPullY.current = 0
+        currentState.current = 'idle'
         setPullY(0)
         setState('idle')
       }
@@ -52,29 +52,33 @@ export function usePullToRefresh({ onRefresh, threshold = 72, containerRef }: Op
       if (!isDragging.current || isRefreshing.current) return
       isDragging.current = false
 
-      if (state === 'ready' || pullY >= threshold) {
+      if (currentPullY.current >= threshold) {
         isRefreshing.current = true
+        currentState.current = 'refreshing'
         setState('refreshing')
         setPullY(0)
-        try { await onRefresh() } catch {}
+        try { await onRefreshRef.current() } catch {}
         isRefreshing.current = false
+        currentState.current = 'idle'
         setState('idle')
       } else {
+        currentPullY.current = 0
+        currentState.current = 'idle'
         setPullY(0)
         setState('idle')
       }
     }
 
-    target.addEventListener('touchstart', onTouchStart, { passive: true })
-    target.addEventListener('touchmove', onTouchMove, { passive: true })
-    target.addEventListener('touchend', onTouchEnd)
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchmove', onTouchMove, { passive: true })
+    window.addEventListener('touchend', onTouchEnd)
 
     return () => {
-      target.removeEventListener('touchstart', onTouchStart)
-      target.removeEventListener('touchmove', onTouchMove)
-      target.removeEventListener('touchend', onTouchEnd)
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('touchend', onTouchEnd)
     }
-  }, [state, pullY, threshold, onRefresh, getScrollTop, getTarget])
+  }, [threshold]) // ← no onRefresh in deps, using ref instead
 
   return { state, pullY }
 }
