@@ -273,7 +273,6 @@ function AppInner() {
             onAddListing={goAddListing}
             loading={false}
             onProfile={() => setActiveScreen('profile')}
-            onRefresh={async () => { await new Promise(r => setTimeout(r, 800)) }}
             onShowAll={(title, items) => setShowAll({ title, items })}
           />
         )}
