@@ -199,7 +199,7 @@ export default function AppPage() {
         {activeScreen === 'messages' && <ChatsScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} />}
         {activeScreen === 'favorites' && <FavoritesScreen favorites={favs} allListings={allListings} onListing={openListing} onFavorite={toggleFav} />}
         {activeScreen === 'requests' && <RequestsScreen user={user} isGuest={isGuest && !user} listings={allListings} onLogin={() => setPhase('auth')} onAddListing={() => { if (!user) { setPhase('auth'); return }; setShowAdd(true) }} onListing={openListing} onDelete={handleDeleteListing} />}
-        {activeScreen === 'profile' && <ProfileScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onAddListing={() => { if (!user) { setPhase('auth'); return }; setShowAdd(true) }} onFeedback={() => setShowFeedback(true)} favCount={favs.length} onLogout={handleLogout} showToast={showToast} />}
+        {activeScreen === 'profile' && <ProfileScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onAddListing={() => { if (!user) { setPhase('auth'); return }; setShowAdd(true) }} onFeedback={() => setShowFeedback(true)} favCount={favs.length} onLogout={handleLogout} showToast={showToast} listings={allListings} onListing={openListing} onDeleteListing={handleDeleteListing} />}
       </div>
       <BottomNav active={activeScreen} onChange={setActiveScreen} favCount={favs.length} unreadMessages={0} />
       <Toast msg={toastMsg} />

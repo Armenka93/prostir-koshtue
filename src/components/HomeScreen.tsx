@@ -3,7 +3,9 @@ import { useState, useMemo } from 'react'
 import PropertyCard from './PropertyCard'
 import type { ListingData, FeedData, User } from '@/types'
 import { CATEGORIES, DISTRICTS } from '@/types'
-import { buildFeed, isNewListing, isPromotionActive } from '@/lib/listing-logic'
+import { buildFeed, isNewListing } from '@/lib/listing-logic'
+import { usePullToRefresh } from '@/hooks/usePullToRefresh'
+import PullToRefresh from './PullToRefresh'
 
 interface Props {
   listings: ListingData[]
@@ -32,6 +34,10 @@ export default function HomeScreen({
   const [showFilters, setShowFilters] = useState(false)
 
   // Build feed from listings using logic system
+  const { state: ptrState, pullY } = usePullToRefresh({
+    onRefresh: onRefresh ?? (() => Promise.resolve()),
+  })
+
   const computedFeed = useMemo(() => buildFeed(listings), [listings])
   const { rekomendovani, populyarni, novi } = computedFeed
 
@@ -83,7 +89,8 @@ export default function HomeScreen({
   )
 
   return (
-    <div style={{ paddingBottom: 80, minHeight: '100dvh' }}>
+    <div style={{ paddingBottom: 80, minHeight: '100dvh', position: 'relative' }}>
+      <PullToRefresh state={ptrState} pullY={pullY} />
 
       {/* ── HEADER ── */}
       <div style={{

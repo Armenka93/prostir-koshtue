@@ -54,10 +54,15 @@ export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, 
   }
 
   const handleSend = async () => {
-    if (!msgForm.name || !msgForm.phone) { showToast('Заповніть ім\'я і телефон'); return }
+    if (!msgForm.message.trim()) { showToast('Введіть повідомлення'); return }
+    if (!user) { onNeedAuth?.(); setShowMessage(false); return }
     setSending(true)
-    await new Promise(r => setTimeout(r, 800))
-    setSent(true)
+    const sellerId = listing.userId
+    const sellerName = listing.ownerName || 'Власник'
+    try {
+      dbSend(listing.id, listing.title, user, { id: sellerId, name: sellerName }, msgForm.message.trim())
+      setSent(true)
+    } catch { showToast('Помилка відправки') }
     setSending(false)
   }
 
