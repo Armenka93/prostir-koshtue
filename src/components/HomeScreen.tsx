@@ -82,7 +82,7 @@ export default function HomeScreen({
   )
 
   return (
-    <div style={{ paddingBottom: 80, minHeight: '100dvh' }}>
+    <div style={{ paddingBottom: 80 }}>
 
       {/* ── HEADER ── */}
       <div style={{
