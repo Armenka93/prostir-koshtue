@@ -5,6 +5,7 @@
 import type { User, ListingData } from '@/types'
 
 export const ADMIN_EMAIL = 'armen.saakyan9393@gmail.com'
+function isAdminEmail(email: string) { return email.toLowerCase().trim() === ADMIN_EMAIL.toLowerCase() }
 
 const K = {
   USER: 'pk_user',
@@ -44,11 +45,11 @@ export function registerAccount(name: string, email: string, phone: string, pass
   const accounts = getAccounts()
   if (accounts.find(a => a.email.toLowerCase() === email.toLowerCase()))
     return { ok: false, error: 'Акаунт з таким email вже існує. Увійдіть.' }
-  const isAdmin = email.toLowerCase() === ADMIN_EMAIL.toLowerCase()
+  const isAdm = isAdminEmail(email)
   const acc: Account = {
     id: 'u_' + Date.now(),
     name, email, phone,
-    role: isAdmin ? 'admin' : 'landlord',
+    role: isAdm ? 'admin' : 'landlord',
     passwordHash: hash(password),
     createdAt: new Date().toISOString(),
   }
@@ -62,8 +63,8 @@ export function loginAccount(email: string, password: string): { ok: boolean; er
   const acc = getAccounts().find(a => a.email.toLowerCase() === email.toLowerCase())
   if (!acc) return { ok: false, error: 'Акаунту з таким email не існує. Зареєструйтесь.' }
   if (acc.passwordHash !== hash(password)) return { ok: false, error: 'Невірний пароль.' }
-  const isAdmin = acc.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()
-  const user: User = { id: acc.id, name: acc.name, email: acc.email, phone: acc.phone, role: isAdmin ? 'admin' : acc.role }
+  const role = isAdminEmail(acc.email) ? 'admin' : acc.role
+  const user: User = { id: acc.id, name: acc.name, email: acc.email, phone: acc.phone, role }
   saveSession(user)
   return { ok: true, user }
 }
@@ -191,6 +192,12 @@ export function getUnreadCount(userId: string): number {
   }, 0)
 }
 
+
+export function deleteChat(chatId: string) {
+  const chats = getChats()
+  saveChats(chats.filter(c => c.id !== chatId))
+  localStorage.removeItem(K.MESSAGES + chatId)
+}
 // ── FEEDBACK ─────────────────────────────────────────────────
 export interface FeedbackRecord {
   id: string; name: string; email: string; message: string
