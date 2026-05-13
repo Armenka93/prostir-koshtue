@@ -2,6 +2,8 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import PropertyCard from './PropertyCard'
 import type { ListingData, User } from '@/types'
+import { usePTR } from '@/hooks/usePTR'
+import PTRIndicator from './PTRIndicator'
 import { CATEGORIES, DISTRICTS } from '@/types'
 import { buildFeed, isNewListing } from '@/lib/listing-logic'
 
@@ -20,109 +22,9 @@ interface Props {
   onShowAll?: (title: string, items: ListingData[]) => void
 }
 
-// ── Pull-to-refresh hook ──────────────────────────────────────
-function usePTR(onRefresh: () => Promise<void>) {
-  const [pulling, setPulling] = useState(false)
-  const [ready, setReady] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-  const [pullY, setPullY] = useState(0)
-  const startY = useRef(0)
-  const dragging = useRef(false)
-  const refreshing_ = useRef(false)
-  const fn = useRef(onRefresh)
-  useEffect(() => { fn.current = onRefresh }, [onRefresh])
+// PTR via shared hook
 
-  useEffect(() => {
-    const THRESHOLD = 65
-    const onTS = (e: TouchEvent) => {
-      if (window.scrollY > 2) return
-      startY.current = e.touches[0].clientY
-      dragging.current = true
-    }
-    const onTM = (e: TouchEvent) => {
-      if (!dragging.current || refreshing_.current) return
-      const dy = e.touches[0].clientY - startY.current
-      if (dy <= 0) { setPullY(0); setPulling(false); setReady(false); return }
-      const clamped = Math.min(dy * 0.4, 100)
-      setPullY(clamped)
-      setPulling(clamped > 10)
-      setReady(clamped >= THRESHOLD)
-    }
-    const onTE = async () => {
-      if (!dragging.current) return
-      dragging.current = false
-      if (pullY >= THRESHOLD && !refreshing_.current) {
-        refreshing_.current = true
-        setRefreshing(true)
-        setPullY(0)
-        setPulling(false)
-        setReady(false)
-        await fn.current().catch(() => {})
-        refreshing_.current = false
-        setRefreshing(false)
-      } else {
-        setPullY(0)
-        setPulling(false)
-        setReady(false)
-      }
-    }
-    window.addEventListener('touchstart', onTS, { passive: true })
-    window.addEventListener('touchmove', onTM, { passive: true })
-    window.addEventListener('touchend', onTE)
-    return () => {
-      window.removeEventListener('touchstart', onTS)
-      window.removeEventListener('touchmove', onTM)
-      window.removeEventListener('touchend', onTE)
-    }
-  }, [pullY])
 
-  return { pulling, ready, refreshing, pullY }
-}
-
-// ── PTR Indicator ─────────────────────────────────────────────
-function PTRIndicator({ pullY, ready, refreshing }: { pullY: number; ready: boolean; refreshing: boolean }) {
-  if (!pullY && !refreshing) return null
-  return (
-    <div style={{
-      position: 'fixed',
-      top: 'max(10px, env(safe-area-inset-top, 10px))',
-      left: '50%', transform: 'translateX(-50%)',
-      zIndex: 300, pointerEvents: 'none',
-      transition: refreshing ? 'none' : 'opacity .15s',
-      opacity: refreshing ? 1 : Math.min(pullY / 50, 1),
-    }}>
-      <div style={{
-        background: '#1A1F2E',
-        border: `1px solid ${ready ? '#FF6B1A' : '#2A3045'}`,
-        borderRadius: 24,
-        padding: '7px 14px',
-        display: 'flex', alignItems: 'center', gap: 8,
-        boxShadow: '0 4px 16px rgba(0,0,0,.5)',
-        transition: 'border-color .2s',
-      }}>
-        {refreshing ? (
-          <>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF6B1A" strokeWidth="2.5" strokeLinecap="round" style={{ animation: 'spin .7s linear infinite' }}>
-              <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
-              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>
-            </svg>
-            <span style={{ fontSize: 12, color: '#A0A8BC', fontFamily: 'Inter,sans-serif' }}>Оновлення...</span>
-          </>
-        ) : (
-          <>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={ready ? '#FF6B1A' : '#6B7280'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-              style={{ transform: `rotate(${ready ? 180 : 0}deg)`, transition: 'transform .2s, stroke .2s' }}>
-              <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
-            </svg>
-            <span style={{ fontSize: 12, color: ready ? '#FF6B1A' : '#A0A8BC', fontFamily: 'Inter,sans-serif', transition: 'color .2s' }}>
-              {ready ? 'Відпустіть' : 'Потягніть вниз'}
-            </span>
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
 
 export default function HomeScreen({
   listings, onListing, onFavorite, favorites,
@@ -138,7 +40,7 @@ export default function HomeScreen({
   const [areaMin, setAreaMin] = useState(0)
   const [areaMax, setAreaMax] = useState(0) // 0 = unlimited
 
-  const ptr = usePTR(onRefresh ?? (() => Promise.resolve()))
+  const ptr = usePTR(onRefresh)
 
   const { rekomendovani, populyarni, novi } = useMemo(() => buildFeed(listings), [listings])
 
@@ -183,7 +85,7 @@ export default function HomeScreen({
 
   return (
     <div style={{ paddingBottom: 90 }}>
-      <PTRIndicator pullY={ptr.pullY} ready={ptr.ready} refreshing={ptr.refreshing} />
+      <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
 
       {/* ── HEADER ── */}
       <div style={{

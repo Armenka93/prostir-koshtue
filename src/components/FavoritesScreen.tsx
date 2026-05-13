@@ -1,4 +1,6 @@
 'use client'
+import { usePTR } from '@/hooks/usePTR'
+import PTRIndicator from './PTRIndicator'
 import type { ListingData } from '@/types'
 import { TYPE_COLORS } from '@/types'
 
@@ -7,13 +9,16 @@ interface Props {
   allListings: ListingData[]
   onListing: (l: ListingData) => void
   onFavorite: (id: number) => void
+  onRefresh?: () => Promise<void>
 }
 
-export default function FavoritesScreen({ favorites, allListings, onListing, onFavorite }: Props) {
+export default function FavoritesScreen({
+  const ptr = usePTR(onRefresh) favorites, allListings, onListing, onFavorite }: Props) {
   const saved = allListings.filter(l => favorites.includes(l.id))
 
   return (
     <div style={{ paddingBottom: 90 }}>
+      <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
       <div style={{ padding: '48px 20px 16px', background: '#0D1018' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Збережені об'єкти</div>

@@ -1,5 +1,7 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { usePTR } from '@/hooks/usePTR'
+import PTRIndicator from './PTRIndicator'
 import type { User, ListingData } from '@/types'
 import {
   getAccounts, getFeedbacks, markFeedbackRead,
@@ -26,6 +28,7 @@ interface Props {
   listings?: ListingData[]
   onListing?: (l: ListingData) => void
   onDeleteListing?: (id: number) => void
+  onRefresh?: () => Promise<void>
 }
 
 // ── Icon helpers ──────────────────────────────────────────────
@@ -101,9 +104,19 @@ function AdminDashboard({ listings, feedbacks, onMarkRead, onDeleteListing }: {
 }) {
   const [tab, setTab] = useState<'stats' | 'listings' | 'feedback' | 'users'>('stats')
   const [accounts, setAccounts] = useState(() => getAccounts())
-  const chats = getChats()
-  // Refresh accounts when tab changes
-  useEffect(() => { setAccounts(getAccounts()) }, [tab])
+  const [chats, setChats] = useState(() => getChats())
+  // Refresh all data when tab changes + every 3s
+  useEffect(() => {
+    setAccounts(getAccounts())
+    setChats(getChats())
+  }, [tab])
+  useEffect(() => {
+    const t = setInterval(() => {
+      setAccounts(getAccounts())
+      setChats(getChats())
+    }, 3000)
+    return () => clearInterval(t)
+  }, [])
   const unread = feedbacks.filter(f => !f.read).length
   const totalViews = listings.reduce((s, l) => s + (l.views || 0), 0)
   const newListings = listings.filter(l => {
@@ -214,11 +227,12 @@ function AdminDashboard({ listings, feedbacks, onMarkRead, onDeleteListing }: {
 }
 
 // ── MAIN ─────────────────────────────────────────────────────
-export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings = [], onListing, onDeleteListing }: Props) {
+export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings = [], onListing, onDeleteListing , onRefresh }: Props) {
   const [notif, setNotif] = useState(true)
   const [showEdit, setShowEdit] = useState(false)
   const [currentUser, setCurrentUser] = useState(user)
   const [feedbacks, setFeedbacks] = useState<FeedbackRecord[]>([])
+  const ptr = usePTR(onRefresh)
   const admin = isAdmin(currentUser)
   const myListings = listings.filter(l => l.userId === currentUser?.id || l.userId === 'me')
   const totalViews = myListings.reduce((s, l) => s + (l.views || 0), 0)

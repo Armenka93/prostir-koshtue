@@ -1,4 +1,6 @@
 'use client'
+import { usePTR } from '@/hooks/usePTR'
+import PTRIndicator from './PTRIndicator'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { User } from '@/types'
 import {
@@ -11,6 +13,7 @@ interface Props {
   user: User | null
   isGuest: boolean
   onLogin: () => void
+  onRefresh?: () => Promise<void>
 }
 
 function timeAgo(iso: string): string {
@@ -195,7 +198,8 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 }
 
 // ── CHATS LIST ────────────────────────────────────────────────
-export default function ChatsScreen({ user, isGuest, onLogin }: Props) {
+export default function ChatsScreen({
+  const ptr = usePTR(onRefresh) user, isGuest, onLogin }: Props) {
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [activeChat, setActiveChat] = useState<ChatRecord | null>(null)
 
@@ -209,6 +213,7 @@ export default function ChatsScreen({ user, isGuest, onLogin }: Props) {
   if (!user) {
     return (
       <div style={{ paddingBottom: 90 }}>
+        <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
         <div style={{ padding: '44px 20px 16px', paddingTop: 'max(44px,env(safe-area-inset-top,44px))', background: 'linear-gradient(180deg,#0D1018,#0F1117)', borderBottom: '1px solid #1E2334' }}>
           <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Повідомлення</div>
         </div>
@@ -235,6 +240,7 @@ export default function ChatsScreen({ user, isGuest, onLogin }: Props) {
 
   return (
     <div style={{ paddingBottom: 90 }}>
+      <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
       <div style={{ padding: '44px 20px 16px', paddingTop: 'max(44px,env(safe-area-inset-top,44px))', background: 'linear-gradient(180deg,#0D1018,#0F1117)', borderBottom: '1px solid #1E2334', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Повідомлення</div>
         {chats.length > 0 && <span style={{ background: '#FF6B1A22', color: '#FF6B1A', fontSize: 12, fontWeight: 700, borderRadius: 20, padding: '3px 10px' }}>{chats.length}</span>}
