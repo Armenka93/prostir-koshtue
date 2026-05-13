@@ -1,12 +1,18 @@
 'use client'
 import { useState, useEffect } from 'react'
 import type { User, ListingData } from '@/types'
-import { isAdmin } from '@/lib/roles'
 import {
   getAccounts, getFeedbacks, markFeedbackRead,
   updateAccount, saveSession, getChats,
   type FeedbackRecord
 } from '@/lib/storage'
+
+// ── Inline admin check ───────────────────────────────────────
+const ADMIN_EMAIL = 'armen.saakyan9393@gmail.com'
+function isAdmin(user: User | null | undefined): boolean {
+  if (!user) return false
+  return (user.email || '').toLowerCase().trim() === ADMIN_EMAIL.toLowerCase()
+}
 
 interface Props {
   user: User | null
