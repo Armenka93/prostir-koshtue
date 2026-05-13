@@ -260,7 +260,7 @@ function AppInner() {
 
   return (
     <>
-      <div style={{ paddingBottom: 80 }}>
+      <div>
         {activeScreen === 'home' && (
           <HomeScreen
             listings={allListings}
