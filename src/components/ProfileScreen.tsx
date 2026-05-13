@@ -100,8 +100,10 @@ function AdminDashboard({ listings, feedbacks, onMarkRead, onDeleteListing }: {
   onMarkRead: (id: string) => void; onDeleteListing?: (id: number) => void
 }) {
   const [tab, setTab] = useState<'stats' | 'listings' | 'feedback' | 'users'>('stats')
-  const accounts = getAccounts()
+  const [accounts, setAccounts] = useState(() => getAccounts())
   const chats = getChats()
+  // Refresh accounts when tab changes
+  useEffect(() => { setAccounts(getAccounts()) }, [tab])
   const unread = feedbacks.filter(f => !f.read).length
   const totalViews = listings.reduce((s, l) => s + (l.views || 0), 0)
   const newListings = listings.filter(l => {
@@ -226,10 +228,19 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
     if (user && isAdmin(user)) setFeedbacks(getFeedbacks())
   }, [user])
 
+  // Live refresh admin stats every 5s
+  useEffect(() => {
+    if (!admin) return
+    const interval = setInterval(() => {
+      setFeedbacks(getFeedbacks())
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [admin])
+
   // ── Not logged in ─────────────────────────────────────────
   if (!currentUser) {
     return (
-      <div style={{ paddingBottom: 80 }}>
+      <div style={{ paddingBottom: 90 }}>
         <div style={{ padding: '44px 20px 16px', paddingTop: 'max(44px,env(safe-area-inset-top,44px))', background: '#0D1018' }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Профіль</div>
         </div>
@@ -246,7 +257,7 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
   const u = currentUser
 
   return (
-    <div style={{ paddingBottom: 80 }}>
+    <div style={{ paddingBottom: 90 }}>
       {/* ── HERO ── */}
       <div style={{ background: 'linear-gradient(160deg,#0D1018,#170D20)', padding: '0 20px 24px', paddingTop: 'max(44px,env(safe-area-inset-top,44px))', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: -60, right: -60, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(255,107,26,.1),transparent)', pointerEvents: 'none' }} />
@@ -365,7 +376,7 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
         </div>
 
         {/* ── LOGOUT ── */}
-        <button onClick={onLogout} style={{ width: '100%', padding: '15px', background: '#EF444411', border: '1px solid #EF444422', borderRadius: 16, color: '#EF4444', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 8 }}>
+        <button onClick={onLogout} style={{ width: '100%', padding: '15px', background: '#EF444411', border: '1px solid #EF444422', borderRadius: 16, color: '#EF4444', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 24 }}>
           Вийти з акаунту
         </button>
       </div>

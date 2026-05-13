@@ -208,7 +208,7 @@ export default function ChatsScreen({ user, isGuest, onLogin }: Props) {
 
   if (!user) {
     return (
-      <div style={{ paddingBottom: 80 }}>
+      <div style={{ paddingBottom: 90 }}>
         <div style={{ padding: '44px 20px 16px', paddingTop: 'max(44px,env(safe-area-inset-top,44px))', background: 'linear-gradient(180deg,#0D1018,#0F1117)', borderBottom: '1px solid #1E2334' }}>
           <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Повідомлення</div>
         </div>
@@ -234,7 +234,7 @@ export default function ChatsScreen({ user, isGuest, onLogin }: Props) {
   }
 
   return (
-    <div style={{ paddingBottom: 80 }}>
+    <div style={{ paddingBottom: 90 }}>
       <div style={{ padding: '44px 20px 16px', paddingTop: 'max(44px,env(safe-area-inset-top,44px))', background: 'linear-gradient(180deg,#0D1018,#0F1117)', borderBottom: '1px solid #1E2334', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Повідомлення</div>
         {chats.length > 0 && <span style={{ background: '#FF6B1A22', color: '#FF6B1A', fontSize: 12, fontWeight: 700, borderRadius: 20, padding: '3px 10px' }}>{chats.length}</span>}

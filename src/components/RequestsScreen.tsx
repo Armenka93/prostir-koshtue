@@ -16,7 +16,7 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
 
   if (!user) {
     return (
-      <div style={{ paddingBottom: 80 }}>
+      <div style={{ paddingBottom: 90 }}>
         <div style={{ padding: '48px 20px 16px', background: '#0D1018' }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Мої оголошення</div>
         </div>
@@ -31,7 +31,7 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
   }
 
   return (
-    <div style={{ paddingBottom: 80 }}>
+    <div style={{ paddingBottom: 90 }}>
       <div style={{ padding: '48px 20px 16px', background: '#0D1018' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>

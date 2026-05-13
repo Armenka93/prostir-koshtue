@@ -41,7 +41,7 @@ export default function SearchScreen({ listings, favorites, onListing, onFavorit
   }, [listings, query, activeType, district, priceMax, areaMin, parking, entrance, sortBy])
 
   return (
-    <div style={{ paddingBottom: 80 }}>
+    <div style={{ paddingBottom: 90 }}>
       <div style={{ padding: '48px 20px 16px', background: '#0D1018' }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 12 }}>Пошук</div>
         <div style={{ background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 14, display: 'flex', alignItems: 'center', padding: '0 14px', gap: 10 }}>
