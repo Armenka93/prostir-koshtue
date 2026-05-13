@@ -23,6 +23,7 @@ import AddListingScreen from '@/components/AddListingScreen'
 import FeedbackScreen from '@/components/FeedbackScreen'
 import AllListingsScreen from '@/components/AllListingsScreen'
 import Toast from '@/components/Toast'
+import InstallPrompt from '@/components/InstallPrompt'
 
 type Screen = 'home' | 'messages' | 'favorites' | 'requests' | 'profile'
 type Phase = 'splash' | 'auth' | 'app'
@@ -323,6 +324,7 @@ function AppInner() {
       />
 
       <Toast msg={toastMsg} />
+      <InstallPrompt />
     </>
   )
 }
