@@ -12,14 +12,15 @@ interface Props {
   onRefresh?: () => Promise<void>
 }
 
-export default function FavoritesScreen({
-  const ptr = usePTR(onRefresh) favorites, allListings, onListing, onFavorite }: Props) {
+export default function FavoritesScreen({ favorites, allListings, onListing, onFavorite, onRefresh }: Props) {
+  const ptr = usePTR(onRefresh)
   const saved = allListings.filter(l => favorites.includes(l.id))
 
   return (
     <div style={{ paddingBottom: 90 }}>
       <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
-      <div style={{ padding: '48px 20px 16px', background: '#0D1018' }}>
+
+      <div style={{ padding: '48px 20px 16px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Збережені об'єкти</div>
           {saved.length > 0 && (
@@ -49,7 +50,7 @@ export default function FavoritesScreen({
                 <img src={img} alt={listing.title} style={{ width: '100%', height: 160, objectFit: 'cover' }} loading="lazy" />
                 <button
                   onClick={e => { e.stopPropagation(); onFavorite(listing.id) }}
-                  style={{ position: 'absolute', top: 10, right: 10, background: 'rgba(15,17,23,0.8)', border: 'none', borderRadius: 10, width: 36, height: 36, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  style={{ position: 'absolute', top: 10, right: 10, background: 'rgba(15,17,23,.8)', border: 'none', borderRadius: 10, width: 36, height: 36, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >❤️</button>
                 <div style={{ padding: '14px 14px 10px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -58,11 +59,9 @@ export default function FavoritesScreen({
                   </div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{listing.title}</div>
                   <div style={{ fontSize: 12, color: '#A0A8BC', marginBottom: 12 }}>📍 {listing.district} • {listing.area} м²</div>
-                  <button onClick={() => onListing(listing)} style={{
-                    width: '100%', padding: '11px',
-                    background: 'linear-gradient(135deg, #FF6B1A, #FF8C3A)',
-                    border: 'none', borderRadius: 10, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-                  }}>Переглянути →</button>
+                  <button onClick={() => onListing(listing)} style={{ width: '100%', padding: 11, background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 10, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                    Переглянути →
+                  </button>
                 </div>
               </div>
             )

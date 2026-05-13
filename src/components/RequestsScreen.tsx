@@ -14,22 +14,24 @@ interface Props {
   onRefresh?: () => Promise<void>
 }
 
-export default function RequestsScreen({
-  const ptr = usePTR(onRefresh) user, isGuest, listings, onLogin, onAddListing, onListing, onDelete }: Props) {
+export default function RequestsScreen({ user, isGuest, listings, onLogin, onAddListing, onListing, onDelete, onRefresh }: Props) {
+  const ptr = usePTR(onRefresh)
   const mine = listings.filter(l => l.userId === 'me' || l.userId === user?.id)
 
   if (!user) {
     return (
       <div style={{ paddingBottom: 90 }}>
-      <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
-        <div style={{ padding: '48px 20px 16px', background: '#0D1018' }}>
+        <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
+        <div style={{ padding: '48px 20px 16px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018' }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Мої оголошення</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 24px', textAlign: 'center' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🏢</div>
           <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Увійдіть щоб керувати оголошеннями</div>
           <div style={{ fontSize: 14, color: '#A0A8BC', marginBottom: 24, lineHeight: 1.5 }}>Зареєстровані користувачі можуть додавати свої приміщення</div>
-          <button onClick={onLogin} style={{ padding: '16px 32px', background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 14, color: '#fff', fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 20px rgba(255,107,26,.35)' }}>Увійти / Зареєструватись</button>
+          <button onClick={onLogin} style={{ padding: '16px 32px', background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 14, color: '#fff', fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>
+            Увійти / Зареєструватись
+          </button>
         </div>
       </div>
     )
@@ -38,7 +40,8 @@ export default function RequestsScreen({
   return (
     <div style={{ paddingBottom: 90 }}>
       <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
-      <div style={{ padding: '48px 20px 16px', background: '#0D1018' }}>
+
+      <div style={{ padding: '48px 20px 16px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Мої оголошення</div>
@@ -57,8 +60,10 @@ export default function RequestsScreen({
           <div style={{ textAlign: 'center', paddingTop: 40 }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>📋</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Ще немає оголошень</div>
-            <div style={{ fontSize: 14, color: '#A0A8BC', marginBottom: 24, lineHeight: 1.5 }}>Додайте приміщення — і орендарі зможуть його знайти</div>
-            <button onClick={onAddListing} style={{ padding: '14px 28px', background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 16px rgba(255,107,26,.3)' }}>
+            <div style={{ fontSize: 14, color: '#A0A8BC', marginBottom: 24, lineHeight: 1.5 }}>
+              Додайте приміщення — і орендарі зможуть його знайти
+            </div>
+            <button onClick={onAddListing} style={{ padding: '14px 28px', background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
               ➕ Додати приміщення
             </button>
           </div>
@@ -77,8 +82,12 @@ export default function RequestsScreen({
                   </div>
                 </div>
                 <div style={{ display: 'flex', borderTop: '1px solid #2A3045' }}>
-                  <button onClick={() => onListing(listing)} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', color: '#2A9FD6', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>👁️ Переглянути</button>
-                  <button onClick={() => { if (confirm('Видалити це оголошення?')) onDelete(listing.id) }} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderLeft: '1px solid #2A3045', color: '#EF4444', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>🗑️ Видалити</button>
+                  <button onClick={() => onListing(listing)} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', color: '#2A9FD6', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    👁️ Переглянути
+                  </button>
+                  <button onClick={() => { if (confirm('Видалити це оголошення?')) onDelete(listing.id) }} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderLeft: '1px solid #2A3045', color: '#EF4444', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    🗑️ Видалити
+                  </button>
                 </div>
               </div>
             )

@@ -198,8 +198,8 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 }
 
 // ── CHATS LIST ────────────────────────────────────────────────
-export default function ChatsScreen({
-  const ptr = usePTR(onRefresh) user, isGuest, onLogin }: Props) {
+export default function ChatsScreen({ user, isGuest, onLogin, onRefresh }: Props) {
+  const ptr = usePTR(onRefresh)
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [activeChat, setActiveChat] = useState<ChatRecord | null>(null)
 
