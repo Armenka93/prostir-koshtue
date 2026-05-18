@@ -20,7 +20,7 @@ export default function FavoritesScreen({ favorites, allListings, onListing, onF
     <div style={{ paddingBottom: 90 }}>
       <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
 
-      <div style={{ padding: '48px 20px 16px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018' }}>
+      <div style={{ padding: "48px 20px 16px", paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Збережені об'єкти</div>
           {saved.length > 0 && (

@@ -89,7 +89,7 @@ export default function HomeScreen({
 
       {/* ── HEADER ── */}
       <div style={{
-        padding: '44px 20px 16px',
+        padding: "44px 20px 16px",
         paddingTop: 'max(44px, env(safe-area-inset-top, 44px))',
         background: 'linear-gradient(180deg,#0D1018,#0F1117)',
       }}>

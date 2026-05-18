@@ -124,7 +124,7 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile 
     <div style={{ minHeight: '100dvh', background: '#0F1117' }}>
       {/* Sticky header */}
       <div style={{
-        padding: '44px 20px 14px',
+        padding: "44px 20px 14px",
         paddingTop: 'max(44px, env(safe-area-inset-top, 44px))',
         background: '#0D1018',
         display: 'flex', alignItems: 'center', gap: 12,

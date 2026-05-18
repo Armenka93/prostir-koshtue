@@ -28,7 +28,7 @@ export default function FeedbackScreen({ onBack }: Props) {
 
   return (
     <div style={{ minHeight: '100dvh', background: '#0F1117', paddingBottom: 40 }}>
-      <div style={{ padding: '44px 20px 24px', paddingTop: 'max(44px,env(safe-area-inset-top,44px))', background: '#0D1018' }}>
+      <div style={{ padding: "44px 20px 24px", paddingTop: 'max(44px,env(safe-area-inset-top,44px))', background: '#0D1018' }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#FF6B1A', fontSize: 16, cursor: 'pointer', marginBottom: 16, fontFamily: 'Inter,sans-serif' }}>← Назад</button>
         <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Зворотній зв'язок</div>
         <div style={{ fontSize: 13, color: '#A0A8BC', marginTop: 4 }}>Ваше повідомлення отримає адміністратор</div>

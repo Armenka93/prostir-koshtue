@@ -22,7 +22,7 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
     return (
       <div style={{ paddingBottom: 90 }}>
         <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
-        <div style={{ padding: '48px 20px 16px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018' }}>
+        <div style={{ padding: "48px 20px 16px", paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018' }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Мої оголошення</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 24px', textAlign: 'center' }}>
@@ -41,7 +41,7 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
     <div style={{ paddingBottom: 90 }}>
       <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
 
-      <div style={{ padding: '48px 20px 16px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018' }}>
+      <div style={{ padding: "48px 20px 16px", paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Мої оголошення</div>

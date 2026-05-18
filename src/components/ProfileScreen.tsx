@@ -6,6 +6,7 @@ import type { User, ListingData } from '@/types'
 import {
   getAccounts, getFeedbacks, markFeedbackRead,
   updateAccount, saveSession, getChats,
+  getPublishedListings,
   type FeedbackRecord
 } from '@/lib/storage'
 
@@ -105,15 +106,20 @@ function AdminDashboard({ listings, feedbacks, onMarkRead, onDeleteListing }: {
   const [tab, setTab] = useState<'stats' | 'listings' | 'feedback' | 'users'>('stats')
   const [accounts, setAccounts] = useState(() => getAccounts())
   const [chats, setChats] = useState(() => getChats())
+  const [storedListings, setStoredListings] = useState<ListingData[]>(() => getPublishedListings())
+  // All listings = prop (includes mocks) merged with direct storage reads
+  const allAdminListings = [...storedListings.filter(s => !listings.find(l => l.id === s.id)), ...listings]
   // Refresh all data when tab changes + every 3s
   useEffect(() => {
     setAccounts(getAccounts())
     setChats(getChats())
+    setStoredListings(getPublishedListings())
   }, [tab])
   useEffect(() => {
     const t = setInterval(() => {
       setAccounts(getAccounts())
       setChats(getChats())
+      setStoredListings(getPublishedListings())
     }, 3000)
     return () => clearInterval(t)
   }, [])
@@ -152,7 +158,7 @@ function AdminDashboard({ listings, feedbacks, onMarkRead, onDeleteListing }: {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {[
             { icon: '👥', val: accounts.length, label: 'Користувачів', color: '#2A9FD6' },
-            { icon: '🏢', val: listings.length, label: "Об'єктів", color: '#22C55E' },
+            { icon: '🏢', val: allAdminListings.length, label: "Об'єктів", color: '#22C55E' },
             { icon: '👁️', val: totalViews > 999 ? (totalViews / 1000).toFixed(1) + 'k' : totalViews, label: 'Переглядів', color: '#FFB020' },
             { icon: '💬', val: chats.length, label: 'Активних чатів', color: '#8B5CF6' },
             { icon: '📨', val: feedbacks.length, label: 'Feedback', color: '#EC4899' },
@@ -170,8 +176,8 @@ function AdminDashboard({ listings, feedbacks, onMarkRead, onDeleteListing }: {
       {/* LISTINGS TAB */}
       {tab === 'listings' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
-          {listings.length === 0 && <div style={{ textAlign: 'center', color: '#6B7280', fontSize: 13, padding: '20px 0' }}>Немає оголошень</div>}
-          {listings.map(l => (
+          {allAdminListings.length === 0 && <div style={{ textAlign: 'center', color: '#6B7280', fontSize: 13, padding: '20px 0' }}>Немає оголошень</div>}
+          {allAdminListings.map(l => (
             <div key={l.id} style={{ background: '#0F1117', borderRadius: 10, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #2A3045' }}>
               <img src={l.images?.[0]} alt="" style={{ width: 38, height: 38, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -255,7 +261,7 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
   if (!currentUser) {
     return (
       <div style={{ paddingBottom: 90 }}>
-        <div style={{ padding: '44px 20px 16px', paddingTop: 'max(44px,env(safe-area-inset-top,44px))', background: '#0D1018' }}>
+        <div style={{ padding: "44px 20px 16px", paddingTop: 'max(44px,env(safe-area-inset-top,44px))', background: '#0D1018' }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Профіль</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 24px', textAlign: 'center' }}>

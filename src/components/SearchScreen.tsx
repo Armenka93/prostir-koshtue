@@ -42,7 +42,7 @@ export default function SearchScreen({ listings, favorites, onListing, onFavorit
 
   return (
     <div style={{ paddingBottom: 90 }}>
-      <div style={{ padding: '48px 20px 16px', background: '#0D1018' }}>
+      <div style={{ padding: '48px 20px 16px', paddingTop: 'max(48px, env(safe-area-inset-top, 48px))', background: '#0D1018' }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 12 }}>Пошук</div>
         <div style={{ background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 14, display: 'flex', alignItems: 'center', padding: '0 14px', gap: 10 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>

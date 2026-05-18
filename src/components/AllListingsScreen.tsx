@@ -54,7 +54,7 @@ export default function AllListingsScreen({ title, listings, allListings, favori
   return (
     <div style={{ minHeight: '100dvh', background: '#0F1117', paddingBottom: 80 }}>
       {/* Header */}
-      <div style={{ padding: '44px 20px 16px', background: '#0D1018', position: 'sticky', top: 0, zIndex: 50 }}>
+      <div style={{ padding: '44px 20px 16px', paddingTop: 'max(44px, env(safe-area-inset-top, 44px))', background: '#0D1018', position: 'sticky', top: 0, zIndex: 50 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
           <button onClick={onBack} style={{
             background: 'rgba(255,255,255,.08)', border: 'none', borderRadius: 10,
