@@ -99,6 +99,23 @@ function AppInner() {
     reloadListings()
   }, [reloadListings])
 
+  // Cross-tab sync: when another tab/account publishes a listing -> reload
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'pk_listings') {
+        reloadListings()
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [reloadListings])
+
+  // Auto-refresh listings every 15s (for same-device multi-account scenario)
+  useEffect(() => {
+    const t = setInterval(() => { reloadListings() }, 15000)
+    return () => clearInterval(t)
+  }, [reloadListings])
+
   const handleRefresh = useCallback(async () => {
     await new Promise(r => setTimeout(r, 600))
     reloadListings()
