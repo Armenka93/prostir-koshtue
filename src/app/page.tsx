@@ -2,11 +2,9 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import type { ListingData, User } from '@/types'
 import { MOCK_LISTINGS } from '@/lib/mockData'
-import {
-  loadSession, saveSession, clearSession,
-  loadFavs, saveFavs,
-  getPublishedListings, publishListing, deleteListing,
-} from '@/lib/storage'
+import { loadFavs, saveFavs } from '@/lib/storage'
+import { loadSession, saveSession, clearSession, registerAccount, loginAccount } from '@/lib/auth'
+import { dbGetListings, dbPublishListing, dbDeleteListing, subscribeToListings } from '@/lib/db'
 
 import SplashScreen from '@/components/SplashScreen'
 import AuthScreen from '@/components/AuthScreen'
@@ -27,40 +25,26 @@ import InstallPrompt from '@/components/InstallPrompt'
 type Screen = 'home' | 'messages' | 'favorites' | 'requests' | 'profile'
 type Phase = 'splash' | 'auth' | 'app'
 
-// ── Build combined listing feed ────────────────────────────────
-// mock data + user-published, deduplicated, newest first
-function buildListings(): ListingData[] {
-  const published = getPublishedListings()
-  const mockIds = new Set(MOCK_LISTINGS.map(l => l.id))
-  const userOnly = published.filter(l => !mockIds.has(l.id))
-  return [...userOnly, ...MOCK_LISTINGS]
-}
-
-// ── Scroll to top helper ───────────────────────────────────────
 function scrollTop() {
-  if (typeof window !== 'undefined') {
-    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
-  }
+  if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
 }
 
-// ── Error Boundary ────────────────────────────────────────────
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: string | null }> {
   constructor(p: { children: React.ReactNode }) { super(p); this.state = { error: null } }
   static getDerivedStateFromError(e: Error) { return { error: e.message } }
   render() {
     if (this.state.error) return (
-      <div style={{ minHeight: '100dvh', background: '#0F1117', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Щось пішло не так</div>
-        <div style={{ fontSize: 13, color: '#A0A8BC', marginBottom: 24 }}>{this.state.error}</div>
-        <button onClick={() => window.location.reload()} style={{ padding: '14px 28px', background: '#FF6B1A', border: 'none', borderRadius: 12, color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>Перезавантажити</button>
+      <div style={{ minHeight:'100dvh', background:'#0F1117', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24, textAlign:'center' }}>
+        <div style={{ fontSize:48, marginBottom:16 }}>⚠️</div>
+        <div style={{ fontSize:18, fontWeight:700, color:'#fff', marginBottom:8 }}>Щось пішло не так</div>
+        <div style={{ fontSize:13, color:'#A0A8BC', marginBottom:24 }}>{this.state.error}</div>
+        <button onClick={() => window.location.reload()} style={{ padding:'14px 28px', background:'#FF6B1A', border:'none', borderRadius:12, color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer' }}>Перезавантажити</button>
       </div>
     )
     return this.props.children
   }
 }
 
-// ── App ────────────────────────────────────────────────────────
 function AppInner() {
   const [phase, setPhase] = useState<Phase>('splash')
   const [user, setUser] = useState<User | null>(null)
@@ -70,7 +54,9 @@ function AppInner() {
   const [showAdd, setShowAdd] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
   const [showAll, setShowAll] = useState<{ title: string; items: ListingData[] } | null>(null)
-  const [allListings, setAllListings] = useState<ListingData[]>(buildListings)
+
+  // Listings: MOCK always shown + DB listings loaded on top
+  const [dbListings, setDbListings] = useState<ListingData[]>([])
   const [favs, setFavs] = useState<number[]>([])
   const [refreshTick, setRefreshTick] = useState(0)
   const [toastMsg, setToastMsg] = useState('')
@@ -82,45 +68,48 @@ function AppInner() {
     toastTimer.current = setTimeout(() => setToastMsg(''), 3000)
   }, [])
 
-  // Reload listings from storage
-  const reloadListings = useCallback(() => {
-    setAllListings(buildListings())
+  // Merge DB listings with MOCK (DB listings first, no duplicates)
+  const allListings = React.useMemo(() => {
+    const mockIds = new Set(MOCK_LISTINGS.map(l => l.id))
+    const dbOnly = dbListings.filter(l => !mockIds.has(l.id))
+    return [...dbOnly, ...MOCK_LISTINGS]
+  }, [dbListings])
+
+  // Load listings from Supabase
+  const loadListings = useCallback(async () => {
+    const data = await dbGetListings()
+    setDbListings(data)
     setRefreshTick(t => t + 1)
   }, [])
 
-  // Auto-login on mount
+  // Initial load + session restore
   useEffect(() => {
+    loadListings()
     const savedUser = loadSession()
     if (savedUser) {
       setUser(savedUser)
       setFavs(loadFavs(savedUser.id))
       setPhase('app')
     }
-    reloadListings()
-  }, [reloadListings])
+  }, [loadListings])
 
-  // Cross-tab sync: when another tab/account publishes a listing -> reload
+  // Realtime: new listing from another user -> update instantly
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === 'pk_listings') {
-        reloadListings()
-      }
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [reloadListings])
-
-  // Auto-refresh listings every 15s (for same-device multi-account scenario)
-  useEffect(() => {
-    const t = setInterval(() => { reloadListings() }, 15000)
-    return () => clearInterval(t)
-  }, [reloadListings])
+    const sub = subscribeToListings(newListing => {
+      setDbListings(prev => {
+        const exists = prev.find(l => l.id === newListing.id)
+        if (exists) return prev
+        return [newListing, ...prev]
+      })
+      setRefreshTick(t => t + 1)
+    })
+    return () => { sub.unsubscribe() }
+  }, [])
 
   const handleRefresh = useCallback(async () => {
-    await new Promise(r => setTimeout(r, 600))
-    reloadListings()
+    await loadListings()
     showToast('✅ Оновлено!')
-  }, [reloadListings, showToast])
+  }, [loadListings, showToast])
 
   const toggleFav = useCallback((id: number) => {
     setFavs(prev => {
@@ -130,21 +119,21 @@ function AppInner() {
     })
   }, [user])
 
-  const handleLogin = (u: User) => {
+  const handleLogin = async (u: User) => {
     setUser(u)
     setIsGuest(false)
     saveSession(u)
     setFavs(loadFavs(u.id))
-    reloadListings()
+    await loadListings()
     setPhase('app')
     scrollTop()
     showToast(`✅ Ви увійшли як ${u.name}`)
   }
 
-  const handleGuest = () => {
+  const handleGuest = async () => {
     setIsGuest(true)
     setUser(null)
-    reloadListings()
+    await loadListings()
     setPhase('app')
     scrollTop()
   }
@@ -164,10 +153,9 @@ function AppInner() {
     scrollTop()
   }
 
-  const handleAddListing = (data: Partial<ListingData>) => {
-    const newL: ListingData = {
-      id: Date.now(),
-      userId: user?.id || 'me',
+  const handleAddListing = async (data: Partial<ListingData>) => {
+    const toPublish: Omit<ListingData, 'id'> = {
+      userId: user?.id || 'guest',
       title: data.title || '',
       type: data.type || 'Офіс',
       price: data.price || 0,
@@ -192,20 +180,27 @@ function AppInner() {
       ownerName: user?.name || null,
       ownerPhone: user?.phone || null,
     }
-    // Save to global DB
-    publishListing(newL)
-    // Reload from DB so UI reflects actual stored data
-    reloadListings()
+
+    // Save to Supabase — visible to ALL users immediately
+    const saved = await dbPublishListing(toPublish)
+    if (saved) {
+      setDbListings(prev => [saved, ...prev.filter(l => l.id !== saved.id)])
+      showToast('✅ Оголошення опубліковано і видно всім!')
+    } else {
+      showToast('❌ Помилка збереження. Перевірте підключення.')
+    }
+
     setShowAdd(false)
-    showToast('✅ Оголошення опубліковано!')
     setActiveScreen('requests')
     scrollTop()
   }
 
-  const handleDeleteListing = (id: number) => {
-    deleteListing(id)
-    reloadListings()
-    showToast('Оголошення видалено')
+  const handleDeleteListing = async (id: number) => {
+    const ok = await dbDeleteListing(id)
+    if (ok) {
+      setDbListings(prev => prev.filter(l => l.id !== id))
+      showToast('Оголошення видалено')
+    }
   }
 
   const goAddListing = () => {
@@ -219,19 +214,12 @@ function AppInner() {
     scrollTop()
   }
 
-  // ── Render ────────────────────────────────────────────────
   if (phase === 'splash') return <><SplashScreen onEnter={() => setPhase('auth')} onGuest={handleGuest} /><Toast msg={toastMsg} /></>
-  if (phase === 'auth')   return <><AuthScreen onDone={handleLogin} onGuest={handleGuest} /><Toast msg={toastMsg} /></>
+  if (phase === 'auth') return <><AuthScreen onDone={handleLogin} onGuest={handleGuest} /><Toast msg={toastMsg} /></>
   if (showFeedback) return <><FeedbackScreen onBack={() => { setShowFeedback(false); scrollTop() }} /><Toast msg={toastMsg} /></>
-  if (showAdd) return (
-    <><AddListingScreen user={user} onBack={() => { setShowAdd(false); scrollTop() }} onCreated={handleAddListing} onGoProfile={() => { setShowAdd(false); setActiveScreen('profile'); scrollTop() }} /><Toast msg={toastMsg} /></>
-  )
-  if (selectedListing) return (
-    <><DetailScreen listing={selectedListing} isFavorite={favs.includes(selectedListing.id)} onBack={() => { setSelectedListing(null); scrollTop() }} onFavorite={toggleFav} onSimilar={openListing} allListings={allListings} user={user} isGuest={isGuest && !user} onLogin={() => { setSelectedListing(null); setPhase('auth') }} showToast={showToast} /><Toast msg={toastMsg} /></>
-  )
-  if (showAll) return (
-    <><AllListingsScreen title={showAll.title} listings={showAll.items} allListings={allListings} favorites={favs} onListing={openListing} onFavorite={toggleFav} onBack={() => { setShowAll(null); scrollTop() }} /><Toast msg={toastMsg} /></>
-  )
+  if (showAdd) return <><AddListingScreen user={user} onBack={() => { setShowAdd(false); scrollTop() }} onCreated={handleAddListing} onGoProfile={() => { setShowAdd(false); setActiveScreen('profile'); scrollTop() }} /><Toast msg={toastMsg} /></>
+  if (selectedListing) return <><DetailScreen listing={selectedListing} isFavorite={favs.includes(selectedListing.id)} onBack={() => { setSelectedListing(null); scrollTop() }} onFavorite={toggleFav} onSimilar={openListing} allListings={allListings} user={user} isGuest={isGuest && !user} onLogin={() => { setSelectedListing(null); setPhase('auth') }} showToast={showToast} /><Toast msg={toastMsg} /></>
+  if (showAll) return <><AllListingsScreen title={showAll.title} listings={showAll.items} allListings={allListings} favorites={favs} onListing={openListing} onFavorite={toggleFav} onBack={() => { setShowAll(null); scrollTop() }} /><Toast msg={toastMsg} /></>
 
   return (
     <>
