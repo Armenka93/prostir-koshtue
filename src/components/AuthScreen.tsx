@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import type { User } from '@/types'
-import { registerAccount, loginAccount } from '@/lib/storage'
+import { registerAccount, loginAccount } from '@/lib/auth'
 
 interface Props {
   onDone: (user: User) => void

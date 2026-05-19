@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { saveFeedback } from '@/lib/storage'
+import { dbSaveFeedback } from '@/lib/db'
 
 interface Props { onBack: () => void }
 
@@ -21,7 +21,7 @@ export default function FeedbackScreen({ onBack }: Props) {
     setError('')
     setLoading(true)
     await new Promise(r => setTimeout(r, 500))
-    saveFeedback({ name: name.trim(), email: email.trim(), message: message.trim() })
+    await dbSaveFeedback({ name: name.trim(), email: email.trim(), message: message.trim() })
     setSubmitted(true)
     setLoading(false)
   }
