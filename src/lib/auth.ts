@@ -4,6 +4,11 @@
  * Сесія (хто залогінений) — localStorage (per device)
  */
 import { dbFindAccount, dbCreateAccount, dbUpdateAccount, type DbAccount } from './db'
+
+// Check if Supabase is configured
+function isSupabaseConfigured(): boolean {
+  return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+}
 import type { User } from '@/types'
 
 export const ADMIN_EMAIL = 'armen.saakyan9393@gmail.com'
@@ -31,6 +36,9 @@ function accToUser(acc: DbAccount): User {
 export async function registerAccount(
   name: string, email: string, phone: string, password: string
 ): Promise<{ ok: boolean; error?: string; user?: User }> {
+  if (!isSupabaseConfigured()) {
+    return { ok: false, error: 'База даних не налаштована. Зверніться до адміністратора.' }
+  }
   const existing = await dbFindAccount(email)
   if (existing) return { ok: false, error: 'Акаунт з таким email вже існує. Увійдіть.' }
 
@@ -52,6 +60,9 @@ export async function registerAccount(
 export async function loginAccount(
   email: string, password: string
 ): Promise<{ ok: boolean; error?: string; user?: User }> {
+  if (!isSupabaseConfigured()) {
+    return { ok: false, error: 'База даних не налаштована. Зверніться до адміністратора.' }
+  }
   const acc = await dbFindAccount(email)
   if (!acc) return { ok: false, error: 'Акаунту з таким email не існує. Зареєструйтесь.' }
   if (acc.password_hash !== hash(password)) return { ok: false, error: 'Невірний пароль.' }
@@ -69,12 +80,7 @@ export async function updateUserProfile(
     phone: updates.phone,
   })
   if (!ok) return null
-
-  const acc = await dbFindAccount(userId).catch(() => null)
-  if (!acc) return null
-  const user = accToUser(acc)
-  saveSession(user)
-  return user
+  return null // session update handled by caller
 }
 
 // ── Session (localStorage — per device) ──────────────────────
