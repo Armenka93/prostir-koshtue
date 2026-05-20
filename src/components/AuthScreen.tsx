@@ -34,7 +34,7 @@ export default function AuthScreen({ onDone, onGuest }: Props) {
       if (password.length < 8) { setError('Пароль мінімум 8 символів'); return }
       setLoading(true)
       await new Promise(r => setTimeout(r, 400))
-      const result = registerAccount(name.trim(), email.trim().toLowerCase(), phone.trim(), password)
+      const result = await registerAccount(name.trim(), email.trim().toLowerCase(), phone.trim(), password)
       setLoading(false)
       if (!result.ok) { setError(result.error || 'Помилка'); return }
       onDone(result.user!)
@@ -43,7 +43,7 @@ export default function AuthScreen({ onDone, onGuest }: Props) {
       if (!password) { setError('Введіть пароль'); return }
       setLoading(true)
       await new Promise(r => setTimeout(r, 400))
-      const result = loginAccount(email.trim().toLowerCase(), password)
+      const result = await loginAccount(email.trim().toLowerCase(), password)
       setLoading(false)
       if (!result.ok) { setError(result.error || 'Помилка'); return }
       onDone(result.user!)
