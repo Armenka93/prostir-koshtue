@@ -1,38 +1,29 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
-import { usePTR } from '@/hooks/usePTR'
-import PTRIndicator from './PTRIndicator'
+import { useState, useEffect } from 'react'
 import type { User, ListingData } from '@/types'
 import {
-  getAccounts, getFeedbacks, markFeedbackRead,
-  updateAccount, saveSession, getChats,
-  getPublishedListings,
-  type FeedbackRecord
-} from '@/lib/storage'
+  dbGetAccounts, dbGetFeedbacks, dbMarkFeedbackRead,
+  dbGetListings, subscribeToAccounts, subscribeFeedback,
+  type DbAccount, type DbFeedback,
+} from '@/lib/db'
+import { updateAccount, saveSession } from '@/lib/storage'
+import { usePTR } from '@/hooks/usePTR'
+import PTRIndicator from './PTRIndicator'
 
-// ── Inline admin check ───────────────────────────────────────
-const ADMIN_EMAIL = 'armen.saakyan9393@gmail.com'
+export const ADMIN_EMAIL = 'armen.saakyan9393@gmail.com'
 function isAdmin(user: User | null | undefined): boolean {
   if (!user) return false
   return (user.email || '').toLowerCase().trim() === ADMIN_EMAIL.toLowerCase()
 }
 
 interface Props {
-  user: User | null
-  isGuest: boolean
-  onLogin: () => void
-  onAddListing: () => void
-  onFeedback: () => void
-  favCount: number
-  onLogout: () => void
-  showToast: (m: string) => void
-  listings?: ListingData[]
-  onListing?: (l: ListingData) => void
-  onDeleteListing?: (id: number) => void
-  onRefresh?: () => Promise<void>
+  user: User | null; isGuest: boolean; onLogin: () => void
+  onAddListing: () => void; onFeedback: () => void
+  favCount: number; onLogout: () => void; showToast: (m: string) => void
+  listings?: ListingData[]; onListing?: (l: ListingData) => void
+  onDeleteListing?: (id: number) => void; onRefresh?: () => Promise<void>
 }
 
-// ── Icon helpers ──────────────────────────────────────────────
 const IC = {
   edit: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
   bell: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
@@ -45,185 +36,168 @@ const IC = {
   lock: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
 }
 
-function Row({ icon, label, sub, color = '#A0A8BC', right, onClick, danger }: {
-  icon: React.ReactNode; label: string; sub?: string
-  color?: string; right?: React.ReactNode; onClick?: () => void; danger?: boolean
-}) {
+function Row({ icon, label, sub, color = '#A0A8BC', right, onClick, danger }: { icon: React.ReactNode; label: string; sub?: string; color?: string; right?: React.ReactNode; onClick?: () => void; danger?: boolean }) {
   return (
-    <div onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 18px', cursor: onClick ? 'pointer' : 'default', borderBottom: '1px solid rgba(42,48,69,.4)', minHeight: 52 }}>
-      <div style={{ width: 34, height: 34, borderRadius: 10, background: danger ? '#EF444420' : color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', color: danger ? '#EF4444' : color, flexShrink: 0 }}>{icon}</div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 15, fontWeight: 500, color: danger ? '#EF4444' : '#fff', lineHeight: 1.2 }}>{label}</div>
-        {sub && <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>{sub}</div>}
+    <div onClick={onClick} style={{ display:'flex', alignItems:'center', gap:14, padding:'13px 18px', cursor:onClick?'pointer':'default', borderBottom:'1px solid rgba(42,48,69,.4)', minHeight:52 }}>
+      <div style={{ width:34, height:34, borderRadius:10, background:danger?'#EF444420':color+'20', display:'flex', alignItems:'center', justifyContent:'center', color:danger?'#EF4444':color, flexShrink:0 }}>{icon}</div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:15, fontWeight:500, color:danger?'#EF4444':'#fff' }}>{label}</div>
+        {sub && <div style={{ fontSize:12, color:'#6B7280', marginTop:2 }}>{sub}</div>}
       </div>
-      {right !== undefined ? right : onClick && <div style={{ color: '#6B7280', flexShrink: 0 }}>{IC.arrow}</div>}
+      {right !== undefined ? right : onClick && <div style={{ color:'#6B7280', flexShrink:0 }}>{IC.arrow}</div>}
     </div>
   )
 }
 
 function Card({ children }: { children: React.ReactNode }) {
-  return <div style={{ background: '#1A1F2E', borderRadius: 18, overflow: 'hidden', border: '1px solid #2A3045' }}>{children}</div>
+  return <div style={{ background:'#1A1F2E', borderRadius:18, overflow:'hidden', border:'1px solid #2A3045' }}>{children}</div>
 }
 
-// ── EDIT MODAL ────────────────────────────────────────────────
 function EditModal({ user, onClose, onSaved }: { user: User; onClose: () => void; onSaved: (u: User) => void }) {
   const [name, setName] = useState(user.name)
   const [phone, setPhone] = useState(user.phone || '')
   const [loading, setLoading] = useState(false)
-  const inp: React.CSSProperties = { width: '100%', background: '#0F1117', border: '1px solid #2A3045', borderRadius: 12, padding: '13px 14px', color: '#fff', fontSize: 15, fontFamily: 'Inter,sans-serif', outline: 'none', boxSizing: 'border-box' as const }
-
+  const inp: React.CSSProperties = { width:'100%', background:'#0F1117', border:'1px solid #2A3045', borderRadius:12, padding:'13px 14px', color:'#fff', fontSize:15, fontFamily:'Inter,sans-serif', outline:'none', boxSizing:'border-box' as const }
   const save = async () => {
     if (!name.trim()) return
     setLoading(true)
-    await new Promise(r => setTimeout(r, 300))
-    const updated = updateAccount(user.id, { name: name.trim(), phone: phone.trim() })
+    await updateAccount(user.id, { name: name.trim(), phone: phone.trim() })
+    const updated: User = { ...user, name: name.trim(), phone: phone.trim() }
+    saveSession(updated)
     setLoading(false)
-    if (updated) { saveSession(updated); onSaved(updated) }
+    onSaved(updated)
     onClose()
   }
-
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 600, display: 'flex', alignItems: 'flex-end', backdropFilter: 'blur(4px)' }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 430, margin: '0 auto', background: '#1A1F2E', borderRadius: '24px 24px 0 0', padding: '20px', paddingBottom: 'max(24px,env(safe-area-inset-bottom,24px))', border: '1px solid #2A3045' }}>
-        <div style={{ width: 36, height: 4, background: '#2A3045', borderRadius: 2, margin: '0 auto 20px' }} />
-        <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 20 }}>Редагувати профіль</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
-          <div><div style={{ fontSize: 11, color: '#A0A8BC', marginBottom: 5, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '.5px' }}>Ім'я</div><input style={inp} value={name} onChange={e => setName(e.target.value)} /></div>
-          <div><div style={{ fontSize: 11, color: '#A0A8BC', marginBottom: 5, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '.5px' }}>Телефон</div><input style={inp} type="tel" value={phone} onChange={e => setPhone(e.target.value)} /></div>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:600, display:'flex', alignItems:'flex-end', backdropFilter:'blur(4px)' }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ width:'100%', maxWidth:430, margin:'0 auto', background:'#1A1F2E', borderRadius:'24px 24px 0 0', padding:'20px', paddingBottom:'max(24px,env(safe-area-inset-bottom,24px))', border:'1px solid #2A3045' }}>
+        <div style={{ width:36, height:4, background:'#2A3045', borderRadius:2, margin:'0 auto 20px' }} />
+        <div style={{ fontSize:18, fontWeight:700, color:'#fff', marginBottom:20 }}>Редагувати профіль</div>
+        <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:20 }}>
+          <div><div style={{ fontSize:11, color:'#A0A8BC', marginBottom:5, fontWeight:600, textTransform:'uppercase' as const, letterSpacing:'.5px' }}>Ім'я</div><input style={inp} value={name} onChange={e => setName(e.target.value)} /></div>
+          <div><div style={{ fontSize:11, color:'#A0A8BC', marginBottom:5, fontWeight:600, textTransform:'uppercase' as const, letterSpacing:'.5px' }}>Телефон</div><input style={inp} type="tel" value={phone} onChange={e => setPhone(e.target.value)} /></div>
         </div>
-        <button onClick={save} disabled={loading} style={{ width: '100%', padding: '15px', background: loading ? '#4B5563' : 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 14, color: '#fff', fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 8 }}>{loading ? '⏳ Збереження...' : 'Зберегти'}</button>
-        <button onClick={onClose} style={{ width: '100%', padding: '13px', background: 'transparent', border: '1px solid #2A3045', borderRadius: 14, color: '#A0A8BC', fontSize: 14, cursor: 'pointer' }}>Скасувати</button>
+        <button onClick={save} disabled={loading} style={{ width:'100%', padding:'15px', background:loading?'#4B5563':'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border:'none', borderRadius:14, color:'#fff', fontSize:16, fontWeight:700, cursor:'pointer', marginBottom:8 }}>{loading?'⏳ Збереження...':'Зберегти'}</button>
+        <button onClick={onClose} style={{ width:'100%', padding:'13px', background:'transparent', border:'1px solid #2A3045', borderRadius:14, color:'#A0A8BC', fontSize:14, cursor:'pointer' }}>Скасувати</button>
       </div>
     </div>
   )
 }
 
 // ── ADMIN DASHBOARD ───────────────────────────────────────────
-function AdminDashboard({ listings, feedbacks, onMarkRead, onDeleteListing }: {
-  listings: ListingData[]; feedbacks: FeedbackRecord[]
-  onMarkRead: (id: string) => void; onDeleteListing?: (id: number) => void
-}) {
-  const [tab, setTab] = useState<'stats' | 'listings' | 'feedback' | 'users'>('stats')
-  const [accounts, setAccounts] = useState(() => getAccounts())
-  const [chats, setChats] = useState(() => getChats())
-  const [storedListings, setStoredListings] = useState<ListingData[]>(() => getPublishedListings())
-  // All listings = prop (includes mocks) merged with direct storage reads
-  const allAdminListings = [...storedListings.filter(s => !listings.find(l => l.id === s.id)), ...listings]
-  // Refresh all data when tab changes + every 3s
+function AdminDashboard({ propListings, onDeleteListing }: { propListings: ListingData[]; onDeleteListing?: (id: number) => void }) {
+  const [tab, setTab] = useState<'stats'|'listings'|'feedback'|'users'>('stats')
+  const [accounts, setAccounts] = useState<DbAccount[]>([])
+  const [feedbacks, setFeedbacks] = useState<DbFeedback[]>([])
+  const [listings, setListings] = useState<ListingData[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const loadAll = async () => {
+    const [accs, fbs, lsts] = await Promise.all([dbGetAccounts(), dbGetFeedbacks(), dbGetListings()])
+    setAccounts(accs)
+    setFeedbacks(fbs)
+    setListings(lsts.length > 0 ? lsts : propListings.filter(l => l.userId !== 'mock'))
+    setLoading(false)
+  }
+
   useEffect(() => {
-    setAccounts(getAccounts())
-    setChats(getChats())
-    setStoredListings(getPublishedListings())
-  }, [tab])
-  useEffect(() => {
-    const t = setInterval(() => {
-      setAccounts(getAccounts())
-      setChats(getChats())
-      setStoredListings(getPublishedListings())
-    }, 3000)
-    return () => clearInterval(t)
+    loadAll()
+    const acSub = subscribeToAccounts(() => dbGetAccounts().then(setAccounts))
+    const fbSub = subscribeFeedback(() => dbGetFeedbacks().then(setFeedbacks))
+    const t = setInterval(() => dbGetListings().then(d => { if (d.length > 0) setListings(d) }), 8000)
+    return () => { acSub.unsubscribe(); fbSub.unsubscribe(); clearInterval(t) }
   }, [])
-  const unread = feedbacks.filter(f => !f.read).length
+
+  const unread = feedbacks.filter(f => !f.is_read).length
   const totalViews = listings.reduce((s, l) => s + (l.views || 0), 0)
-  const newListings = listings.filter(l => {
-    const d = new Date(l.createdAt).getTime()
-    return (Date.now() - d) < 7 * 24 * 3600000
-  }).length
+  const newListings = listings.filter(l => (Date.now() - new Date(l.createdAt).getTime()) < 7*24*3600000).length
 
   const tabs = [
-    { id: 'stats', label: '📊 Статистика' },
-    { id: 'listings', label: `🏢 Об'єкти (${listings.length})` },
-    { id: 'feedback', label: `💬 Feedback${unread > 0 ? ` (${unread})` : ''}` },
-    { id: 'users', label: `👥 Юзери (${accounts.length})` },
-  ] as const
+    { id: 'stats' as const, label: '📊 Статистика' },
+    { id: 'listings' as const, label: `🏢 Об'єкти (${listings.length})` },
+    { id: 'feedback' as const, label: `💬 Feedback${unread > 0 ? ` (${unread})` : ''}` },
+    { id: 'users' as const, label: `👥 Юзери (${accounts.length})` },
+  ]
 
   return (
-    <div style={{ background: '#1A1020', borderRadius: 20, border: '1px solid #FF6B1A33', padding: 16, marginBottom: 20 }}>
-      {/* Admin badge */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <div style={{ background: 'linear-gradient(135deg,#FFB020,#FF6B1A)', borderRadius: 10, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>{IC.shield}</div>
-        <span style={{ fontSize: 15, fontWeight: 700, color: '#FFB020' }}>Адмін-панель</span>
-        {unread > 0 && <span style={{ background: '#EF4444', color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 20, padding: '2px 7px', marginLeft: 'auto' }}>🔴 {unread} нових</span>}
+    <div style={{ background:'#1A1020', borderRadius:20, border:'1px solid #FF6B1A33', padding:16, marginBottom:20 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
+        <div style={{ background:'linear-gradient(135deg,#FFB020,#FF6B1A)', borderRadius:10, width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', flexShrink:0 }}>{IC.shield}</div>
+        <span style={{ fontSize:15, fontWeight:700, color:'#FFB020' }}>Адмін-панель</span>
+        {unread > 0 && <span style={{ background:'#EF4444', color:'#fff', fontSize:10, fontWeight:700, borderRadius:20, padding:'2px 7px', marginLeft:'auto' }}>🔴 {unread}</span>}
+        <button onClick={loadAll} style={{ marginLeft:unread>0?4:'auto', background:'#1A1F2E', border:'1px solid #2A3045', borderRadius:8, padding:'4px 10px', color:'#A0A8BC', fontSize:11, cursor:'pointer' }}>↻ Оновити</button>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 5, marginBottom: 14, overflowX: 'auto', scrollbarWidth: 'none' }}>
+      <div style={{ display:'flex', gap:5, marginBottom:14, overflowX:'auto', scrollbarWidth:'none' }}>
         {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '7px 10px', background: tab === t.id ? '#FF6B1A' : '#0F1117', border: `1px solid ${tab === t.id ? '#FF6B1A' : '#2A3045'}`, borderRadius: 10, color: tab === t.id ? '#fff' : '#A0A8BC', fontSize: 11, fontWeight: tab === t.id ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>{t.label}</button>
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding:'7px 10px', background:tab===t.id?'#FF6B1A':'#0F1117', border:`1px solid ${tab===t.id?'#FF6B1A':'#2A3045'}`, borderRadius:10, color:tab===t.id?'#fff':'#A0A8BC', fontSize:11, fontWeight:tab===t.id?700:400, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>{t.label}</button>
         ))}
       </div>
 
-      {/* STATS TAB */}
-      {tab === 'stats' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      {loading && <div style={{ textAlign:'center', padding:'20px 0', color:'#6B7280', fontSize:13 }}>⏳ Завантаження...</div>}
+
+      {!loading && tab === 'stats' && (
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
           {[
-            { icon: '👥', val: accounts.length, label: 'Користувачів', color: '#2A9FD6' },
-            { icon: '🏢', val: allAdminListings.length, label: "Об'єктів", color: '#22C55E' },
-            { icon: '👁️', val: totalViews > 999 ? (totalViews / 1000).toFixed(1) + 'k' : totalViews, label: 'Переглядів', color: '#FFB020' },
-            { icon: '💬', val: chats.length, label: 'Активних чатів', color: '#8B5CF6' },
-            { icon: '📨', val: feedbacks.length, label: 'Feedback', color: '#EC4899' },
-            { icon: '✨', val: newListings, label: 'Нових (7д)', color: '#FF6B1A' },
+            { icon:'👥', val:accounts.length, label:'Користувачів', color:'#2A9FD6' },
+            { icon:'🏢', val:listings.length, label:"Об'єктів", color:'#22C55E' },
+            { icon:'👁️', val:totalViews>999?Math.round(totalViews/1000)+'k':totalViews, label:'Переглядів', color:'#FFB020' },
+            { icon:'💬', val:feedbacks.length, label:'Feedback', color:'#EC4899' },
+            { icon:'✨', val:newListings, label:'Нових (7д)', color:'#FF6B1A' },
+            { icon:'📧', val:unread, label:'Непрочитано', color:'#EF4444' },
           ].map(s => (
-            <div key={s.label} style={{ background: '#0F1117', borderRadius: 14, padding: '12px 10px', border: `1px solid ${s.color}22`, textAlign: 'center' }}>
-              <div style={{ fontSize: 22, marginBottom: 4 }}>{s.icon}</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.val}</div>
-              <div style={{ fontSize: 10, color: '#6B7280', marginTop: 2 }}>{s.label}</div>
+            <div key={s.label} style={{ background:'#0F1117', borderRadius:14, padding:'12px 10px', border:`1px solid ${s.color}22`, textAlign:'center' }}>
+              <div style={{ fontSize:22, marginBottom:4 }}>{s.icon}</div>
+              <div style={{ fontSize:20, fontWeight:800, color:s.color }}>{s.val}</div>
+              <div style={{ fontSize:10, color:'#6B7280', marginTop:2 }}>{s.label}</div>
             </div>
           ))}
         </div>
       )}
 
-      {/* LISTINGS TAB */}
-      {tab === 'listings' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
-          {allAdminListings.length === 0 && <div style={{ textAlign: 'center', color: '#6B7280', fontSize: 13, padding: '20px 0' }}>Немає оголошень</div>}
-          {allAdminListings.map(l => (
-            <div key={l.id} style={{ background: '#0F1117', borderRadius: 10, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #2A3045' }}>
-              <img src={l.images?.[0]} alt="" style={{ width: 38, height: 38, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.title}</div>
-                <div style={{ fontSize: 11, color: '#6B7280' }}>{l.ownerName} • {l.price.toLocaleString('uk-UA')} ₴/міс</div>
+      {!loading && tab === 'listings' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:300, overflowY:'auto' }}>
+          {listings.length === 0 && <div style={{ textAlign:'center', color:'#6B7280', fontSize:13, padding:'20px 0' }}>Немає оголошень</div>}
+          {listings.map(l => (
+            <div key={l.id} style={{ background:'#0F1117', borderRadius:10, padding:'8px 10px', display:'flex', alignItems:'center', gap:8, border:'1px solid #2A3045' }}>
+              <img src={l.images?.[0]} alt="" style={{ width:38, height:38, borderRadius:8, objectFit:'cover', flexShrink:0 }} />
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:12, fontWeight:600, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{l.title}</div>
+                <div style={{ fontSize:11, color:'#6B7280' }}>{l.ownerName || l.userId} • {l.price?.toLocaleString('uk-UA')} ₴</div>
               </div>
-              {onDeleteListing && (
-                <button onClick={() => { if (confirm('Видалити?')) onDeleteListing(l.id) }} style={{ background: '#EF444418', border: 'none', borderRadius: 8, padding: '6px 8px', color: '#EF4444', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}>{IC.trash}</button>
-              )}
+              {onDeleteListing && <button onClick={() => { if (confirm('Видалити?')) onDeleteListing(l.id) }} style={{ background:'#EF444418', border:'none', borderRadius:8, padding:'6px 8px', color:'#EF4444', cursor:'pointer', display:'flex', alignItems:'center', flexShrink:0 }}>{IC.trash}</button>}
             </div>
           ))}
         </div>
       )}
 
-      {/* FEEDBACK TAB */}
-      {tab === 'feedback' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
-          {feedbacks.length === 0 && <div style={{ textAlign: 'center', color: '#6B7280', fontSize: 13, padding: '20px 0' }}>Немає повідомлень</div>}
-          {[...feedbacks].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(fb => (
-            <div key={fb.id} style={{ background: '#0F1117', borderRadius: 12, padding: '10px 12px', border: `1px solid ${fb.read ? '#2A3045' : '#FF6B1A44'}` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <div>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{fb.name}</span>
-                  {fb.email && <span style={{ fontSize: 11, color: '#6B7280', marginLeft: 8 }}>{fb.email}</span>}
-                </div>
-                {!fb.read && <button onClick={() => onMarkRead(fb.id)} style={{ background: '#FF6B1A22', border: '1px solid #FF6B1A44', borderRadius: 8, padding: '2px 8px', color: '#FF6B1A', fontSize: 10, cursor: 'pointer' }}>Прочитано</button>}
+      {!loading && tab === 'feedback' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:300, overflowY:'auto' }}>
+          {feedbacks.length === 0 && <div style={{ textAlign:'center', color:'#6B7280', fontSize:13, padding:'20px 0' }}>Немає повідомлень</div>}
+          {feedbacks.map(fb => (
+            <div key={fb.id} style={{ background:'#0F1117', borderRadius:12, padding:'10px 12px', border:`1px solid ${fb.is_read?'#2A3045':'#FF6B1A44'}` }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                <div><span style={{ fontSize:13, fontWeight:600, color:'#fff' }}>{fb.name}</span>{fb.email&&<span style={{ fontSize:11, color:'#6B7280', marginLeft:8 }}>{fb.email}</span>}</div>
+                {!fb.is_read && <button onClick={() => { dbMarkFeedbackRead(fb.id!); setFeedbacks(p => p.map(f => f.id===fb.id?{...f,is_read:true}:f)) }} style={{ background:'#FF6B1A22', border:'1px solid #FF6B1A44', borderRadius:8, padding:'2px 8px', color:'#FF6B1A', fontSize:10, cursor:'pointer' }}>Прочитано</button>}
               </div>
-              <div style={{ fontSize: 13, color: '#A0A8BC', lineHeight: 1.5, marginBottom: 4 }}>{fb.message}</div>
-              <div style={{ fontSize: 10, color: '#6B7280' }}>{new Date(fb.createdAt).toLocaleString('uk-UA')}</div>
+              <div style={{ fontSize:13, color:'#A0A8BC', lineHeight:1.5 }}>{fb.message}</div>
+              <div style={{ fontSize:10, color:'#6B7280', marginTop:4 }}>{new Date(fb.created_at||'').toLocaleString('uk-UA')}</div>
             </div>
           ))}
         </div>
       )}
 
-      {/* USERS TAB */}
-      {tab === 'users' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
-          {accounts.length === 0 && <div style={{ textAlign: 'center', color: '#6B7280', fontSize: 13, padding: '20px 0' }}>Немає користувачів</div>}
+      {!loading && tab === 'users' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:300, overflowY:'auto' }}>
+          {accounts.length === 0 && <div style={{ textAlign:'center', color:'#6B7280', fontSize:13, padding:'20px 0' }}>Немає користувачів</div>}
           {accounts.map(acc => (
-            <div key={acc.id} style={{ background: '#0F1117', borderRadius: 10, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #2A3045' }}>
-              <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#FF6B1A,#FFB020)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{acc.name.charAt(0)}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{acc.name}</div>
-                <div style={{ fontSize: 11, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{acc.email}</div>
+            <div key={acc.id} style={{ background:'#0F1117', borderRadius:10, padding:'8px 10px', display:'flex', alignItems:'center', gap:10, border:'1px solid #2A3045' }}>
+              <div style={{ width:34, height:34, borderRadius:'50%', background:'linear-gradient(135deg,#FF6B1A,#FFB020)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:700, color:'#fff', flexShrink:0 }}>{acc.name?.charAt(0)?.toUpperCase()}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{acc.name}</div>
+                <div style={{ fontSize:11, color:'#6B7280', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{acc.email}</div>
               </div>
-              <span style={{ fontSize: 10, color: acc.role === 'admin' ? '#FFB020' : '#A0A8BC', background: acc.role === 'admin' ? '#FFB02022' : '#2A3045', borderRadius: 6, padding: '2px 6px', flexShrink: 0 }}>{acc.role}</span>
+              <span style={{ fontSize:10, color:acc.role==='admin'?'#FFB020':'#A0A8BC', background:acc.role==='admin'?'#FFB02022':'#2A3045', borderRadius:6, padding:'2px 6px', flexShrink:0 }}>{acc.role}</span>
             </div>
           ))}
         </div>
@@ -233,42 +207,29 @@ function AdminDashboard({ listings, feedbacks, onMarkRead, onDeleteListing }: {
 }
 
 // ── MAIN ─────────────────────────────────────────────────────
-export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings = [], onListing, onDeleteListing , onRefresh }: Props) {
+export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings=[], onListing, onDeleteListing, onRefresh }: Props) {
   const [notif, setNotif] = useState(true)
   const [showEdit, setShowEdit] = useState(false)
   const [currentUser, setCurrentUser] = useState(user)
-  const [feedbacks, setFeedbacks] = useState<FeedbackRecord[]>([])
   const ptr = usePTR(onRefresh)
   const admin = isAdmin(currentUser)
   const myListings = listings.filter(l => l.userId === currentUser?.id || l.userId === 'me')
   const totalViews = myListings.reduce((s, l) => s + (l.views || 0), 0)
 
-  useEffect(() => {
-    setCurrentUser(user)
-    if (user && isAdmin(user)) setFeedbacks(getFeedbacks())
-  }, [user])
+  useEffect(() => { setCurrentUser(user) }, [user])
 
-  // Live refresh admin stats every 5s
-  useEffect(() => {
-    if (!admin) return
-    const interval = setInterval(() => {
-      setFeedbacks(getFeedbacks())
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [admin])
-
-  // ── Not logged in ─────────────────────────────────────────
   if (!currentUser) {
     return (
-      <div style={{ paddingBottom: 90 }}>
-        <div style={{ padding: "44px 20px 16px", paddingTop: 'max(44px,env(safe-area-inset-top,44px))', background: '#0D1018' }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Профіль</div>
+      <div style={{ paddingBottom:90 }}>
+        <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
+        <div style={{ padding:'48px 20px 16px', paddingTop:'max(48px,env(safe-area-inset-top,48px))', background:'#0D1018' }}>
+          <div style={{ fontSize:22, fontWeight:800, color:'#fff' }}>Профіль</div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 24px', textAlign: 'center' }}>
-          <div style={{ width: 80, height: 80, borderRadius: 24, background: '#1A1F2E', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36, marginBottom: 20, border: '1px solid #2A3045' }}>👤</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Ви не авторизовані</div>
-          <div style={{ fontSize: 14, color: '#A0A8BC', lineHeight: 1.6, maxWidth: 280, marginBottom: 28 }}>Увійдіть для доступу до профілю та оголошень</div>
-          <button onClick={onLogin} style={{ width: '100%', maxWidth: 300, padding: '16px', background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 14, color: '#fff', fontSize: 16, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 20px rgba(255,107,26,.35)' }}>Увійти / Зареєструватись</button>
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'60px 24px', textAlign:'center' }}>
+          <div style={{ width:80, height:80, borderRadius:24, background:'#1A1F2E', display:'flex', alignItems:'center', justifyContent:'center', fontSize:36, marginBottom:20, border:'1px solid #2A3045' }}>👤</div>
+          <div style={{ fontSize:20, fontWeight:700, color:'#fff', marginBottom:8 }}>Ви не авторизовані</div>
+          <div style={{ fontSize:14, color:'#A0A8BC', lineHeight:1.6, maxWidth:280, marginBottom:28 }}>Увійдіть для доступу до профілю та оголошень</div>
+          <button onClick={onLogin} style={{ width:'100%', maxWidth:300, padding:'16px', background:'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border:'none', borderRadius:14, color:'#fff', fontSize:16, fontWeight:700, cursor:'pointer' }}>Увійти / Зареєструватись</button>
         </div>
       </div>
     )
@@ -277,97 +238,80 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
   const u = currentUser
 
   return (
-    <div style={{ paddingBottom: 90 }}>
-      {/* ── HERO ── */}
-      <div style={{ background: 'linear-gradient(160deg,#0D1018,#170D20)', padding: '0 20px 24px', paddingTop: 'max(44px,env(safe-area-inset-top,44px))', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: -60, right: -60, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(255,107,26,.1),transparent)', pointerEvents: 'none' }} />
+    <div style={{ paddingBottom:90 }}>
+      <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
 
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 20 }}>
-          {/* Avatar */}
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <div style={{ width: 68, height: 68, borderRadius: 20, background: 'linear-gradient(135deg,#FF6B1A,#FFB020)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, fontWeight: 800, color: '#fff', border: '2px solid rgba(255,107,26,.3)' }}>
+      {/* HERO */}
+      <div style={{ background:'linear-gradient(160deg,#0D1018,#170D20)', padding:'0 20px 24px', paddingTop:'max(48px,env(safe-area-inset-top,48px))', position:'relative', overflow:'hidden' }}>
+        <div style={{ position:'absolute', top:-60, right:-60, width:200, height:200, borderRadius:'50%', background:'radial-gradient(circle,rgba(255,107,26,.1),transparent)', pointerEvents:'none' }} />
+        <div style={{ display:'flex', alignItems:'flex-start', gap:14, marginBottom:20 }}>
+          <div style={{ position:'relative', flexShrink:0 }}>
+            <div style={{ width:68, height:68, borderRadius:20, background:'linear-gradient(135deg,#FF6B1A,#FFB020)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:26, fontWeight:800, color:'#fff', border:'2px solid rgba(255,107,26,.3)' }}>
               {u.name?.charAt(0)?.toUpperCase() || '?'}
             </div>
-            {admin && (
-              <div style={{ position: 'absolute', bottom: -4, right: -4, background: 'linear-gradient(135deg,#FFB020,#FF6B1A)', borderRadius: 8, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>🛡️</div>
-            )}
+            {admin && <div style={{ position:'absolute', bottom:-4, right:-4, background:'linear-gradient(135deg,#FFB020,#FF6B1A)', borderRadius:8, width:22, height:22, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11 }}>🛡️</div>}
           </div>
-
-          <div style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 19, fontWeight: 800, color: '#fff' }}>{u.name}</div>
-              {admin && <span style={{ background: 'linear-gradient(135deg,#FFB020,#FF6B1A)', borderRadius: 8, padding: '2px 8px', fontSize: 10, fontWeight: 700, color: '#fff' }}>ADMIN</span>}
+          <div style={{ flex:1, minWidth:0, paddingTop:4 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3, flexWrap:'wrap' as const }}>
+              <div style={{ fontSize:19, fontWeight:800, color:'#fff' }}>{u.name}</div>
+              {admin && <span style={{ background:'linear-gradient(135deg,#FFB020,#FF6B1A)', borderRadius:8, padding:'2px 8px', fontSize:10, fontWeight:700, color:'#fff' }}>ADMIN</span>}
             </div>
-            <div style={{ fontSize: 13, color: '#A0A8BC', marginBottom: 2 }}>{u.email}</div>
-            {u.phone && <div style={{ fontSize: 13, color: '#6B7280' }}>{u.phone}</div>}
+            <div style={{ fontSize:13, color:'#A0A8BC', marginBottom:2 }}>{u.email}</div>
+            {u.phone && <div style={{ fontSize:13, color:'#6B7280' }}>{u.phone}</div>}
           </div>
-
-          <button onClick={() => setShowEdit(true)} style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 12, padding: '8px 12px', color: '#A0A8BC', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, flexShrink: 0 }}>
+          <button onClick={() => setShowEdit(true)} style={{ background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.1)', borderRadius:12, padding:'8px 12px', color:'#A0A8BC', cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontSize:13, flexShrink:0 }}>
             {IC.edit} Ред.
           </button>
         </div>
 
-        {/* ── USER STATS (personal) ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+        {/* User stats */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
           {[
-            { icon: '❤️', val: favCount, label: 'Збережено' },
-            { icon: '🏢', val: myListings.length, label: "Оголошень" },
-            { icon: '👁️', val: totalViews > 999 ? Math.round(totalViews / 1000) + 'k' : totalViews, label: 'Переглядів' },
+            { icon:'❤️', val:favCount, label:'Збережено' },
+            { icon:'🏢', val:myListings.length, label:'Оголошень' },
+            { icon:'👁️', val:totalViews>999?Math.round(totalViews/1000)+'k':totalViews, label:'Переглядів' },
           ].map(s => (
-            <div key={s.label} style={{ background: 'rgba(255,255,255,.05)', borderRadius: 14, padding: '10px 6px', textAlign: 'center', border: '1px solid rgba(255,255,255,.06)' }}>
-              <div style={{ fontSize: 18, marginBottom: 2 }}>{s.icon}</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: '#fff' }}>{s.val}</div>
-              <div style={{ fontSize: 10, color: '#6B7280', marginTop: 1 }}>{s.label}</div>
+            <div key={s.label} style={{ background:'rgba(255,255,255,.05)', borderRadius:14, padding:'10px 6px', textAlign:'center', border:'1px solid rgba(255,255,255,.06)' }}>
+              <div style={{ fontSize:18, marginBottom:2 }}>{s.icon}</div>
+              <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>{s.val}</div>
+              <div style={{ fontSize:10, color:'#6B7280', marginTop:1 }}>{s.label}</div>
             </div>
           ))}
         </div>
       </div>
 
-      <div style={{ padding: '20px 20px 0' }}>
-        {/* ── ADMIN DASHBOARD (only for admin) ── */}
-        {admin && (
-          <AdminDashboard
-            listings={listings}
-            feedbacks={feedbacks}
-            onMarkRead={id => { markFeedbackRead(id); setFeedbacks(getFeedbacks()) }}
-            onDeleteListing={onDeleteListing}
-          />
-        )}
+      <div style={{ padding:'20px 20px 0' }}>
+        {/* ADMIN DASHBOARD */}
+        {admin && <AdminDashboard propListings={listings} onDeleteListing={onDeleteListing} />}
 
-        {/* ── QUICK ACTIONS ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-          <button onClick={onAddListing} style={{ background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 16, padding: '15px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 4px 16px rgba(255,107,26,.3)' }}>
-            <div style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>{IC.plus}</div>
-            <div style={{ textAlign: 'left' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Додати</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,.7)' }}>приміщення</div>
-            </div>
+        {/* QUICK ACTIONS */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:20 }}>
+          <button onClick={onAddListing} style={{ background:'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border:'none', borderRadius:16, padding:'15px 12px', cursor:'pointer', display:'flex', alignItems:'center', gap:10, boxShadow:'0 4px 16px rgba(255,107,26,.3)' }}>
+            <div style={{ width:34, height:34, borderRadius:10, background:'rgba(255,255,255,.2)', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', flexShrink:0 }}>{IC.plus}</div>
+            <div style={{ textAlign:'left' }}><div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>Додати</div><div style={{ fontSize:11, color:'rgba(255,255,255,.7)' }}>приміщення</div></div>
           </button>
-          <button onClick={onFeedback} style={{ background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 16, padding: '15px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 10, background: '#2A9FD622', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2A9FD6', flexShrink: 0 }}>{IC.msg}</div>
-            <div style={{ textAlign: 'left' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Підтримка</div>
-              <div style={{ fontSize: 11, color: '#6B7280' }}>Написати нам</div>
-            </div>
+          <button onClick={onFeedback} style={{ background:'#1A1F2E', border:'1px solid #2A3045', borderRadius:16, padding:'15px 12px', cursor:'pointer', display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ width:34, height:34, borderRadius:10, background:'#2A9FD622', display:'flex', alignItems:'center', justifyContent:'center', color:'#2A9FD6', flexShrink:0 }}>{IC.msg}</div>
+            <div style={{ textAlign:'left' }}><div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>Підтримка</div><div style={{ fontSize:11, color:'#6B7280' }}>Написати нам</div></div>
           </button>
         </div>
 
-        {/* ── MY LISTINGS PREVIEW ── */}
+        {/* MY LISTINGS */}
         {myListings.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, color: '#6B7280', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase' as const, marginBottom: 8 }}>Мої оголошення</div>
+          <div style={{ marginBottom:20 }}>
+            <div style={{ fontSize:11, color:'#6B7280', fontWeight:700, letterSpacing:'1px', textTransform:'uppercase' as const, marginBottom:8 }}>Мої оголошення</div>
             <Card>
-              {myListings.slice(0, 3).map((l, i) => (
-                <div key={l.id} onClick={() => onListing?.(l)} style={{ display: 'flex', gap: 12, padding: '12px 16px', borderBottom: i < Math.min(myListings.length, 3) - 1 ? '1px solid #2A3045' : 'none', cursor: 'pointer' }}>
-                  <img src={l.images?.[0]} alt="" style={{ width: 50, height: 50, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.title}</div>
-                    <div style={{ fontSize: 12, color: '#A0A8BC', marginTop: 2 }}>{l.district} • {l.area} м²</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#FF6B1A', marginTop: 2 }}>{l.price.toLocaleString('uk-UA')} ₴/міс</div>
+              {myListings.slice(0,3).map((l,i) => (
+                <div key={l.id} onClick={() => onListing?.(l)} style={{ display:'flex', gap:12, padding:'12px 16px', borderBottom:i<Math.min(myListings.length,3)-1?'1px solid #2A3045':'none', cursor:'pointer' }}>
+                  <img src={l.images?.[0]} alt="" style={{ width:50, height:50, borderRadius:10, objectFit:'cover', flexShrink:0 }} />
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{l.title}</div>
+                    <div style={{ fontSize:12, color:'#A0A8BC', marginTop:2 }}>{l.district} • {l.area} м²</div>
+                    <div style={{ fontSize:14, fontWeight:700, color:'#FF6B1A', marginTop:2 }}>{l.price?.toLocaleString('uk-UA')} ₴/міс</div>
                   </div>
-                  <div style={{ flexShrink: 0 }}>
-                    <span style={{ background: '#22C55E22', color: '#22C55E', fontSize: 10, fontWeight: 700, borderRadius: 20, padding: '2px 7px' }}>Активне</span>
-                    <div style={{ fontSize: 10, color: '#6B7280', marginTop: 4, textAlign: 'right' }}>👁 {l.views || 0}</div>
+                  <div style={{ flexShrink:0 }}>
+                    <span style={{ background:'#22C55E22', color:'#22C55E', fontSize:10, fontWeight:700, borderRadius:20, padding:'2px 7px' }}>Активне</span>
+                    <div style={{ fontSize:10, color:'#6B7280', marginTop:4, textAlign:'right' as const }}>👁 {l.views||0}</div>
                   </div>
                 </div>
               ))}
@@ -375,38 +319,25 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
           </div>
         )}
 
-        {/* ── SETTINGS ── */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, color: '#6B7280', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase' as const, marginBottom: 8 }}>Налаштування</div>
+        {/* SETTINGS */}
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:'#6B7280', fontWeight:700, letterSpacing:'1px', textTransform:'uppercase' as const, marginBottom:8 }}>Налаштування</div>
           <Card>
-            <Row
-              icon={<div style={{ color: '#22C55E' }}>{IC.bell}</div>}
-              label="Сповіщення"
-              color="#22C55E"
-              right={
-                <div onClick={e => { e.stopPropagation(); setNotif(n => !n) }}
-                  style={{ width: 44, height: 26, borderRadius: 13, background: notif ? '#FF6B1A' : '#2A3045', position: 'relative', cursor: 'pointer', transition: 'background .2s', flexShrink: 0 }}>
-                  <div style={{ position: 'absolute', top: 3, left: notif ? 21 : 3, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left .2s' }} />
-                </div>
-              }
+            <Row icon={<div style={{ color:'#22C55E' }}>{IC.bell}</div>} label="Сповіщення" color="#22C55E"
+              right={<div onClick={e => { e.stopPropagation(); setNotif(n => !n) }} style={{ width:44, height:26, borderRadius:13, background:notif?'#FF6B1A':'#2A3045', position:'relative', cursor:'pointer', transition:'background .2s', flexShrink:0 }}><div style={{ position:'absolute', top:3, left:notif?21:3, width:20, height:20, borderRadius:'50%', background:'#fff', transition:'left .2s' }} /></div>}
             />
-            <Row icon={<div style={{ color: '#8B5CF6' }}>{IC.lock}</div>} label="Конфіденційність" sub="Дані та безпека" color="#8B5CF6" onClick={() => showToast('Розділ в розробці')} />
-            <Row icon={<div style={{ color: '#FFB020' }}>{IC.info}</div>} label="Про додаток" sub="v1.0.0" color="#FFB020" onClick={() => showToast('Простір Коштує v1.0.0')} right={<></>} />
+            <Row icon={<div style={{ color:'#8B5CF6' }}>{IC.lock}</div>} label="Конфіденційність" sub="Дані та безпека" color="#8B5CF6" onClick={() => showToast('Розділ в розробці')} />
+            <Row icon={<div style={{ color:'#FFB020' }}>{IC.info}</div>} label="Про додаток" sub="v1.0.0" color="#FFB020" onClick={() => showToast('Простір Коштує v1.0.0')} right={<></>} />
           </Card>
         </div>
 
-        {/* ── LOGOUT ── */}
-        <button onClick={onLogout} style={{ width: '100%', padding: '15px', background: '#EF444411', border: '1px solid #EF444422', borderRadius: 16, color: '#EF4444', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 24 }}>
+        <button onClick={onLogout} style={{ width:'100%', padding:'15px', background:'#EF444411', border:'1px solid #EF444422', borderRadius:16, color:'#EF4444', fontSize:15, fontWeight:600, cursor:'pointer', marginBottom:24 }}>
           Вийти з акаунту
         </button>
       </div>
 
       {showEdit && currentUser && (
-        <EditModal
-          user={currentUser}
-          onClose={() => setShowEdit(false)}
-          onSaved={u => { setCurrentUser(u); showToast('✅ Профіль оновлено') }}
-        />
+        <EditModal user={currentUser} onClose={() => setShowEdit(false)} onSaved={u => { setCurrentUser(u); showToast('✅ Профіль оновлено') }} />
       )}
     </div>
   )
