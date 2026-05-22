@@ -16,7 +16,11 @@ interface Props {
 
 export default function RequestsScreen({ user, isGuest, listings, onLogin, onAddListing, onListing, onDelete, onRefresh }: Props) {
   const ptr = usePTR(onRefresh)
-  const mine = listings.filter(l => l.userId === 'me' || l.userId === user?.id)
+  const mine = listings.filter(l => {
+    if (!user) return false
+    // Match by userId (DB) or legacy 'me' (localStorage)
+    return l.userId === user.id || l.userId === 'me' || l.ownerName === user.name
+  })
 
   if (!user) {
     return (
