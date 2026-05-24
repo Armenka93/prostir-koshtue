@@ -108,8 +108,26 @@ export function maskPhone(raw: string): string {
 }
 
 export function formatPhone(raw: string): string {
+  if (!raw) return ''
   const d = raw.replace(/\D/g, '')
-  const n = d.length === 12 && d.startsWith('38') ? d.slice(2) : d
+  // Get 10-digit Ukrainian number
+  const n = d.startsWith('380') ? d.slice(2) : d.startsWith('38') && d.length === 12 ? d.slice(2) : d
   if (n.length !== 10) return raw
-  return n.slice(0, 3) + ' ' + n.slice(3, 6) + ' ' + n.slice(6, 8) + ' ' + n.slice(8)
+  return '(' + n.slice(0, 3) + ') ' + n.slice(3, 6) + ' ' + n.slice(6, 8) + ' ' + n.slice(8)
+}
+
+// Returns proper tel: href — always +380XXXXXXXXX
+export function telHref(raw: string): string {
+  if (!raw) return ''
+  const d = raw.replace(/\D/g, '')
+  // Already has country code
+  if (d.startsWith('380') && d.length === 12) return '+' + d
+  // Has 38 prefix
+  if (d.startsWith('38') && d.length === 12) return '+' + d
+  // 10 digits — add +38
+  if (d.length === 10) return '+38' + d
+  // 9 digits — add +380
+  if (d.length === 9) return '+380' + d
+  // Fallback
+  return '+' + d
 }
