@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback } from 'react'
 import type { ListingData, User } from '@/types'
-import { TYPE_COLORS, maskPhone, formatPhone } from '@/types'
+import { TYPE_COLORS, maskPhone, formatPhone, telHref } from '@/types'
 import ImageGallery from './ImageGallery'
 import { sendMessage as dbSend } from '@/lib/storage'
 
@@ -120,7 +120,7 @@ export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, 
               Контактний номер недоступний
             </div>
           ) : showPhone ? (
-            <a href={`tel:${data.ownerPhone!.replace(/\D/g, '')}`} className="fade-in" style={{
+            <a href={`tel:${telHref(data.ownerPhone!)}`} className="fade-in" style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
               width: '100%', padding: '14px', background: 'linear-gradient(135deg, #22C55E, #16A34A)',
               border: 'none', borderRadius: 12, color: '#fff', fontSize: 18, fontWeight: 700,
@@ -234,7 +234,7 @@ export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, 
       <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 430, padding: '12px 20px 24px', background: 'linear-gradient(transparent, #0F1117 30%)', zIndex: 50 }}>
         <div style={{ display: 'flex', gap: 10 }}>
           {showPhone ? (
-            <a href={`tel:${data.ownerPhone?.replace(/\D/g, '')}`} style={{ flex: 1, padding: '15px', textAlign: 'center', textDecoration: 'none', background: 'linear-gradient(135deg, #22C55E, #16A34A)', border: 'none', borderRadius: 14, color: '#fff', fontSize: 15, fontWeight: 700, display: 'block' }}>
+            <a href={`tel:${telHref(data.ownerPhone || '')}`} style={{ flex: 1, padding: '15px', textAlign: 'center', textDecoration: 'none', background: 'linear-gradient(135deg, #22C55E, #16A34A)', border: 'none', borderRadius: 14, color: '#fff', fontSize: 15, fontWeight: 700, display: 'block' }}>
               📞 {displayPhone}
             </a>
           ) : (
