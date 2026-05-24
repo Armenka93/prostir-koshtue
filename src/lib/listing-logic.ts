@@ -77,25 +77,31 @@ export function isPromotionActive(l: ListingData): boolean {
  */
 export function buildFeed(listings: ListingData[]): FeedData {
   const active = listings.filter(l => l.isActive !== false)
+  
+  // Sort all by date — newest first
+  const byDate = [...active].sort((a, b) => 
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )
 
-  // РЕКОМЕНДОВАНІ — платне просування (показуються першими)
+  // РЕКОМЕНДОВАНІ — платне просування
   const rekomendovani = active
     .filter(l => isPromotionActive(l))
     .sort((a, b) => calcScore(b) - calcScore(a))
     .slice(0, RECOMMENDED_LIMIT)
 
-  // ПОПУЛЯРНІ — за score/переглядами (не promoted, щоб не дублювались)
+  // ПОПУЛЯРНІ — за score (mock listings мають views > 0, нові = 0)
+  // Показуємо топ за переглядами але мінімум 5 записів
   const promotedIds = new Set(rekomendovani.map(l => l.id))
   const populyarni = active
-    .filter(l => !promotedIds.has(l.id))
+    .filter(l => !promotedIds.has(l.id) && (l.views || 0) > 0)
     .sort((a, b) => calcScore(b) - calcScore(a))
-    .filter(l => calcScore(l) >= POPULAR_MIN_SCORE)
     .slice(0, POPULAR_LIMIT)
 
-  // НОВІ — за датою публікації (останні NOVA_TTL_DAYS днів)
-  const novi = active
-    .filter(l => isNewListing(l))
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  // НОВІ — всі оголошення за останні 30 днів, відсортовані за датою
+  // (розширено з 7 до 30 днів щоб нові DB записи завжди були видні)
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 3600000
+  const novi = byDate
+    .filter(l => new Date(l.createdAt).getTime() > thirtyDaysAgo)
     .slice(0, FEED_NEW_LIMIT)
 
   return { rekomendovani, populyarni, novi }
