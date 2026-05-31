@@ -1,9 +1,8 @@
 'use client'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { ListingData, User } from '@/types'
 import { TYPE_COLORS, maskPhone, formatPhone, telHref } from '@/types'
-import ImageGallery from './ImageGallery'
-import { sendMessage as dbSend } from '@/lib/storage'
+import { getOrCreateChat } from '@/lib/chats-db'
 
 interface Props {
   listing: ListingData
@@ -16,9 +15,10 @@ interface Props {
   onLogin?: () => void
   user?: User | null
   showToast: (m: string) => void
+  onOpenChat?: () => void  // navigate to messages tab
 }
 
-function FavBtn({ id, isFav, onFav, style, size = 18 }: { id: number; isFav: boolean; onFav: (id: number) => void; style?: React.CSSProperties; size?: number }) {
+function FavBtn({ id, isFav, onFav, style }: { id: number; isFav: boolean; onFav: (id: number) => void; style?: React.CSSProperties }) {
   const [scale, setScale] = useState(1)
   const click = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -26,18 +26,18 @@ function FavBtn({ id, isFav, onFav, style, size = 18 }: { id: number; isFav: boo
     onFav(id)
   }, [id, onFav])
   return (
-    <button onClick={click} style={{ ...style, transform: `scale(${scale})`, transition: scale === 1 ? 'transform .15s ease-out' : 'transform .08s ease-in', willChange: 'transform' }}>
-      <span style={{ fontSize: size }}>{isFav ? '❤️' : '🤍'}</span>
+    <button onClick={click} style={{ ...style, transform: `scale(${scale})`, transition: scale === 1 ? 'transform .15s ease-out' : 'transform .08s ease-in' }}>
+      <span style={{ fontSize: 18 }}>{isFav ? '❤️' : '🤍'}</span>
     </button>
   )
 }
 
-export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, onSimilar, allListings, isGuest, onLogin, user, showToast }: Props) {
+export default function DetailScreen({
+  listing, onBack, onFavorite, isFavorite, onSimilar,
+  allListings, isGuest, onLogin, user, showToast, onOpenChat
+}: Props) {
   const [showPhone, setShowPhone] = useState(false)
-  const [showMessage, setShowMessage] = useState(false)
-  const [msgForm, setMsgForm] = useState({ name: user?.name || '', phone: user?.phone || '', message: '' })
-  const [sending, setSending] = useState(false)
-  const [sent, setSent] = useState(false)
+  const [startingChat, setStartingChat] = useState(false)
 
   const data = listing
   const tc = TYPE_COLORS[data.type] || '#FF6B1A'
@@ -45,52 +45,81 @@ export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, 
   const images = data.images?.length ? data.images : ['https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&q=80']
   const isLoggedIn = !!user
   const hasPhone = !!data.ownerPhone
-  const isOwn = !!user && data.userId === user.id
+  const isOwn = !!user && (data.userId === user.id || data.userId === 'me')
   const maskedPhone = data.ownerPhone ? maskPhone(data.ownerPhone) : '*** *** ****'
   const displayPhone = data.ownerPhone ? formatPhone(data.ownerPhone) : ''
+  const phoneHref = data.ownerPhone ? telHref(data.ownerPhone) : ''
 
   const handleReveal = () => {
     if (!isLoggedIn) { onLogin?.(); return }
     setShowPhone(true)
   }
 
-  const handleSend = async () => {
-    if (!msgForm.message.trim()) { showToast('Введіть повідомлення'); return }
-    if (!user) { onNeedAuth?.(); setShowMessage(false); return }
-    setSending(true)
-    const sellerId = listing.userId
-    const sellerName = listing.ownerName || 'Власник'
+  // ── Open Supabase chat ────────────────────────────────────
+  const handleWriteToSeller = async () => {
+    if (!isLoggedIn) { onLogin?.(); return }
+    if (isOwn) { showToast('Це ваше оголошення'); return }
+
+    const sellerId = data.userId || 'unknown'
+    const sellerName = data.ownerName || 'Власник'
+
+    if (sellerId === 'unknown' || !sellerId) {
+      showToast('Продавець недоступний')
+      return
+    }
+
+    setStartingChat(true)
     try {
-      dbSend(listing.id, listing.title, user, { id: sellerId, name: sellerName }, msgForm.message.trim())
-      setSent(true)
-    } catch { showToast('Помилка відправки') }
-    setSending(false)
+      const chat = await getOrCreateChat(
+        data.id,
+        data.title,
+        user!.id,
+        user!.name,
+        sellerId,
+        sellerName
+      )
+      if (chat) {
+        showToast('✅ Чат відкрито!')
+        onOpenChat?.()
+        onBack()
+      } else {
+        showToast('❌ Помилка створення чату')
+      }
+    } catch (e) {
+      console.error('handleWriteToSeller error:', e)
+      showToast('❌ Помилка підключення')
+    } finally {
+      setStartingChat(false)
+    }
   }
 
   return (
     <div style={{ paddingBottom: 110 }}>
-      {/* Image gallery with swipe */}
-      <ImageGallery
-        images={images}
-        title={data.title}
-        height={300}
-        topLeft={
-          <button onClick={onBack} style={{
-            position: 'absolute', top: 48, left: 16,
-            background: 'rgba(15,17,23,0.75)', border: 'none', borderRadius: 12,
-            width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', fontSize: 18, backdropFilter: 'blur(6px)', color: '#fff', zIndex: 10,
-          }}>←</button>
-        }
-        topRight={
-          <FavBtn id={listing.id} isFav={isFavorite} onFav={onFavorite} size={18} style={{
-            position: 'absolute', top: 48, right: 16,
-            background: 'rgba(15,17,23,0.75)', border: 'none', borderRadius: 12,
-            width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', backdropFilter: 'blur(6px)', padding: 0, zIndex: 10,
-          }} />
-        }
-      />
+      {/* Image gallery */}
+      <div style={{ position: 'relative', height: 300, overflow: 'hidden', background: '#1A1F2E' }}>
+        <img
+          src={images[0]}
+          alt={data.title}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+        {images.length > 1 && (
+          <div style={{ position: 'absolute', bottom: 12, right: 16, background: 'rgba(0,0,0,.6)', borderRadius: 20, padding: '3px 10px', fontSize: 12, color: '#fff' }}>
+            1/{images.length}
+          </div>
+        )}
+        <button onClick={onBack} style={{
+          position: 'absolute', top: 'max(48px, env(safe-area-inset-top, 48px))', left: 16,
+          background: 'rgba(15,17,23,0.75)', border: 'none', borderRadius: 12,
+          width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', fontSize: 18, backdropFilter: 'blur(6px)', color: '#fff', zIndex: 10,
+        }}>←</button>
+        <FavBtn id={listing.id} isFav={isFavorite} onFav={onFavorite} style={{
+          position: 'absolute', top: 'max(48px, env(safe-area-inset-top, 48px))', right: 16,
+          background: 'rgba(15,17,23,0.75)', border: 'none', borderRadius: 12,
+          width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', backdropFilter: 'blur(6px)', padding: 0, zIndex: 10,
+        }} />
+      </div>
 
       <div style={{ padding: '20px 20px 0' }}>
         {/* Type badge */}
@@ -107,7 +136,7 @@ export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, 
         {/* Owner card */}
         <div style={{ background: '#1A1F2E', borderRadius: 14, padding: '14px 16px', marginBottom: 16, border: '1px solid #2A3045' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <div style={{ width: 44, height: 44, borderRadius: 14, background: 'linear-gradient(135deg, #FF6B1A, #FFB020)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 14, background: 'linear-gradient(135deg,#FF6B1A,#FFB020)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
               {(data.ownerName || 'В').charAt(0).toUpperCase()}
             </div>
             <div>
@@ -115,16 +144,17 @@ export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, 
               <div style={{ fontSize: 12, color: '#A0A8BC' }}>Власник приміщення</div>
             </div>
           </div>
+
           {!hasPhone ? (
-            <div style={{ width: '100%', padding: '14px', background: '#1A1F2E', border: '1px dashed #2A3045', borderRadius: 12, color: '#6B7280', fontSize: 13, textAlign: 'center' }}>
+            <div style={{ width: '100%', padding: '14px', background: '#0F1117', border: '1px dashed #2A3045', borderRadius: 12, color: '#6B7280', fontSize: 13, textAlign: 'center' }}>
               Контактний номер недоступний
             </div>
           ) : showPhone ? (
-            <a href={`tel:${telHref(data.ownerPhone!)}`} className="fade-in" style={{
+            <a href={phoneHref} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              width: '100%', padding: '14px', background: 'linear-gradient(135deg, #22C55E, #16A34A)',
-              border: 'none', borderRadius: 12, color: '#fff', fontSize: 18, fontWeight: 700,
-              textDecoration: 'none', boxShadow: '0 4px 16px rgba(34,197,94,0.3)',
+              width: '100%', padding: '14px', background: 'linear-gradient(135deg,#22C55E,#16A34A)',
+              borderRadius: 12, color: '#fff', fontSize: 18, fontWeight: 700, textDecoration: 'none',
+              boxShadow: '0 4px 16px rgba(34,197,94,.3)',
             }}>📞 {displayPhone}</a>
           ) : (
             <button onClick={handleReveal} style={{
@@ -141,7 +171,7 @@ export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, 
           )}
         </div>
 
-        {/* Stats row */}
+        {/* Stats */}
         <div style={{ background: '#1A1F2E', borderRadius: 14, padding: '12px 16px', display: 'flex', gap: 0, marginBottom: 16, border: '1px solid #2A3045' }}>
           {[
             { icon: '📐', label: 'Площа', value: `${data.area} м²` },
@@ -173,7 +203,7 @@ export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, 
           </div>
         )}
 
-        {/* Specs grid */}
+        {/* Specs */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 10 }}>Характеристики</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -205,7 +235,7 @@ export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, 
           </div>
         )}
 
-        {/* Views/likes */}
+        {/* Stats */}
         <div style={{ display: 'flex', gap: 16, marginBottom: 20, fontSize: 12, color: '#6B7280' }}>
           <span>👁 {data.views || 0} переглядів</span>
           <span>❤️ {data.likes || 0} вподобань</span>
@@ -215,7 +245,7 @@ export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, 
         {similar.length > 0 && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 10 }}>Схожі об'єкти</div>
-            <div className="scrollbar-none" style={{ display: 'flex', gap: 10, overflowX: 'auto' }}>
+            <div style={{ display: 'flex', gap: 10, overflowX: 'auto', scrollbarWidth: 'none' }}>
               {similar.map(l => (
                 <div key={l.id} onClick={() => onSimilar(l)} style={{ flexShrink: 0, width: 160, background: '#1A1F2E', borderRadius: 12, overflow: 'hidden', cursor: 'pointer', border: '1px solid #2A3045' }}>
                   <img src={l.images?.[0]} alt={l.title} style={{ width: '100%', height: 90, objectFit: 'cover' }} />
@@ -231,64 +261,58 @@ export default function DetailScreen({ listing, onBack, onFavorite, isFavorite, 
       </div>
 
       {/* Fixed bottom CTA */}
-      <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 430, padding: '12px 20px 24px', background: 'linear-gradient(transparent, #0F1117 30%)', zIndex: 50 }}>
+      <div style={{
+        position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
+        width: '100%', maxWidth: 430, padding: '12px 20px',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))',
+        background: 'linear-gradient(transparent, #0F1117 30%)', zIndex: 50,
+      }}>
         <div style={{ display: 'flex', gap: 10 }}>
+          {/* Phone button */}
           {showPhone ? (
-            <a href={`tel:${telHref(data.ownerPhone || '')}`} style={{ flex: 1, padding: '15px', textAlign: 'center', textDecoration: 'none', background: 'linear-gradient(135deg, #22C55E, #16A34A)', border: 'none', borderRadius: 14, color: '#fff', fontSize: 15, fontWeight: 700, display: 'block' }}>
+            <a href={phoneHref} style={{ flex: 1, padding: '15px', textAlign: 'center', textDecoration: 'none', background: 'linear-gradient(135deg,#22C55E,#16A34A)', borderRadius: 14, color: '#fff', fontSize: 15, fontWeight: 700, boxShadow: '0 4px 20px rgba(34,197,94,.35)', display: 'block' }}>
               📞 {displayPhone}
             </a>
           ) : (
-            <button onClick={handleReveal} style={{ flex: 1, padding: '15px', background: 'linear-gradient(135deg, #FF6B1A, #FF8C3A)', border: 'none', borderRadius: 14, color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 20px rgba(255,107,26,0.35)' }}>
+            <button onClick={handleReveal} style={{ flex: 1, padding: '15px', background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 14, color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 20px rgba(255,107,26,.35)' }}>
               📞 Показати номер
             </button>
           )}
+
+          {/* Chat button — creates real Supabase chat */}
           {isOwn ? (
-            <div style={{ padding: '15px 14px', background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 14, fontSize: 11, color: '#6B7280', textAlign: 'center', lineHeight: 1.2 }}>Ваше<br/>оголошення</div>
+            <div style={{ padding: '15px 14px', background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 14, fontSize: 11, color: '#6B7280', textAlign: 'center', lineHeight: 1.2 }}>
+              Ваше<br/>оголошення
+            </div>
           ) : (
-            <button onClick={() => { if (!isLoggedIn) { onLogin?.(); return } setShowMessage(true) }} style={{ padding: '15px 18px', background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 14, fontSize: 15, cursor: 'pointer', color: '#fff' }}>💬</button>
+            <button
+              onClick={handleWriteToSeller}
+              disabled={startingChat}
+              style={{
+                padding: '15px 18px', background: startingChat ? '#2A3045' : '#1A1F2E',
+                border: '1px solid #2A3045', borderRadius: 14, fontSize: 15,
+                cursor: startingChat ? 'default' : 'pointer', color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                minWidth: 52,
+              }}
+              title="Написати продавцю"
+            >
+              {startingChat ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A0A8BC" strokeWidth="2.5" strokeLinecap="round" style={{ animation: 'spin .7s linear infinite' }}>
+                  <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>
+                </svg>
+              ) : '💬'}
+            </button>
           )}
-          <FavBtn id={data.id} isFav={isFavorite} onFav={onFavorite} size={18} style={{ padding: '15px 18px', background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} />
+
+          {/* Fav button */}
+          <FavBtn id={data.id} isFav={isFavorite} onFav={onFavorite} style={{
+            padding: '15px 18px', background: '#1A1F2E', border: '1px solid #2A3045',
+            borderRadius: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }} />
         </div>
       </div>
-
-      {/* Message modal */}
-      {showMessage && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'flex-end', zIndex: 200, backdropFilter: 'blur(4px)' }} onClick={() => setShowMessage(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ width: '100%', background: '#1A1F2E', borderRadius: '24px 24px 0 0', padding: '24px 24px 48px', border: '1px solid #2A3045' }}>
-            <div style={{ width: 40, height: 4, background: '#2A3045', borderRadius: 2, margin: '0 auto 24px' }} />
-            {sent ? (
-              <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Повідомлення надіслано!</div>
-                <div style={{ fontSize: 14, color: '#A0A8BC', marginBottom: 20 }}>Власник отримає ваш запит у розділі «Чати»</div>
-                <button onClick={() => { setShowMessage(false); setSent(false) }} style={{ padding: '14px 24px', background: '#FF6B1A', border: 'none', borderRadius: 12, color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>Закрити</button>
-              </div>
-            ) : (
-              <>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Написати власнику</div>
-                <div style={{ fontSize: 13, color: '#A0A8BC', marginBottom: 16 }}>{data.title}</div>
-                {user && <div style={{ background: '#0F1117', borderRadius: 10, padding: '10px 12px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#FF6B1A,#FFB020)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{user.name?.charAt(0)}</div>
-                  <div><div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{user.name}</div><div style={{ fontSize: 11, color: '#6B7280' }}>{user.phone || user.email}</div></div>
-                </div>}
-                <textarea
-                  placeholder="Ваше повідомлення..."
-                  value={msgForm.message}
-                  onChange={e => setMsgForm(f => ({ ...f, message: e.target.value }))}
-                  rows={4}
-                  style={{ width: '100%', background: '#0F1117', border: '1px solid #2A3045', borderRadius: 12, padding: '13px 14px', color: '#fff', fontSize: 14, fontFamily: 'Inter, sans-serif', outline: 'none', resize: 'none', marginBottom: 12, display: 'block', boxSizing: 'border-box' as const }}
-                />
-                <button onClick={handleSend} disabled={!msgForm.message.trim() || sending} style={{
-                  width: '100%', padding: '16px',
-                  background: (!msgForm.message.trim() || sending) ? '#4B5563' : 'linear-gradient(135deg,#FF6B1A,#FF8C3A)',
-                  border: 'none', borderRadius: 14, color: '#fff', fontSize: 16, fontWeight: 700,
-                  cursor: (!msgForm.message.trim() || sending) ? 'not-allowed' : 'pointer',
-                }}>{sending ? '⏳ Відправка...' : '📨 Надіслати'}</button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
