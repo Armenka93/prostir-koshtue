@@ -8,7 +8,7 @@ import {
   dbGetListings, dbPublishListing, dbDeleteListing,
   subscribeToListings, isSupabaseReady,
 } from '@/lib/db'
-
+import { getUnreadCount } from '@/lib/chats-db'
 import SplashScreen from '@/components/SplashScreen'
 import AuthScreen from '@/components/AuthScreen'
 import BottomNav from '@/components/BottomNav'
