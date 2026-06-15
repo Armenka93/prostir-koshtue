@@ -1,5 +1,12 @@
 'use client'
 import React, { useState, useCallback, useRef, useEffect } from 'react'
+useEffect(() => {
+  if (!user) return
+  const update = () => getUnreadCount(user.id).then(setUnreadMsgs)
+  update()
+  const t = setInterval(update, 8000)
+  return () => clearInterval(t)
+}, [user])
 import type { ListingData, User } from '@/types'
 import { MOCK_LISTINGS } from '@/lib/mockData'
 import { loadFavs, saveFavs } from '@/lib/storage'
@@ -65,6 +72,8 @@ function AppInner() {
   const [dbLoaded, setDbLoaded] = useState(false)
   const [favs, setFavs] = useState<number[]>([])
   const [refreshTick, setRefreshTick] = useState(0)
+  const [unreadMsgs, setUnreadMsgs] = useState(0)
+  const [initialChatId, setInitialChatId] = useState<string | undefined>(undefined)
 
   const [toastMsg, setToastMsg] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -264,7 +273,7 @@ function AppInner() {
   if (showFeedback) return <><FeedbackScreen onBack={() => { setShowFeedback(false); scrollTop() }} /><Toast msg={toastMsg} /></>
   if (showAdd) return <><AddListingScreen user={user} onBack={() => { setShowAdd(false); scrollTop() }} onCreated={handleAddListing} onGoProfile={() => { setShowAdd(false); setActiveScreen('profile'); scrollTop() }} /><Toast msg={toastMsg} /></>
   if (selectedListing) return (
-    <><DetailScreen listing={selectedListing} isFavorite={favs.includes(selectedListing.id)} onBack={() => { setSelectedListing(null); scrollTop() }} onFavorite={toggleFav} onSimilar={openListing} allListings={allListings} user={user} isGuest={isGuest && !user} onLogin={() => { setSelectedListing(null); setPhase('auth') }} showToast={showToast} onOpenChat={() => { setSelectedListing(null); goScreen('messages') }}/><Toast msg={toastMsg}  /></>
+    <><DetailScreen listing={selectedListing} isFavorite={favs.includes(selectedListing.id)} onBack={() => { setSelectedListing(null); scrollTop() }} onFavorite={toggleFav} onSimilar={openListing} allListings={allListings} user={user} isGuest={isGuest && !user} onLogin={() => { setSelectedListing(null); setPhase('auth') }} showToast={showToast} onOpenChat={(chatId) => { setSelectedListing(null); setInitialChatId(chatId); goScreen('messages') }} /></>
   )
   if (showAll) return (
     <><AllListingsScreen title={showAll.title} listings={showAll.items} allListings={allListings} favorites={favs} onListing={openListing} onFavorite={toggleFav} onBack={() => { setShowAll(null); scrollTop() }} /><Toast msg={toastMsg} /></>
@@ -290,12 +299,12 @@ function AppInner() {
             onShowAll={(title, items) => { setShowAll({ title, items }); scrollTop() }}
           />
         )}
-        {activeScreen === 'messages' && <ChatsScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onRefresh={handleRefresh} />}
+        {activeScreen === 'messages' && <ChatsScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onRefresh={handleRefresh} initialChatId={initialChatId}/>}
         {activeScreen === 'favorites' && <FavoritesScreen favorites={favs} allListings={allListings} onListing={openListing} onFavorite={toggleFav} onRefresh={handleRefresh} />}
         {activeScreen === 'requests' && <RequestsScreen user={user} isGuest={isGuest && !user} listings={allListings} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onListing={openListing} onDelete={handleDeleteListing} onRefresh={handleRefresh} />}
         {activeScreen === 'profile' && <ProfileScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onFeedback={() => { setShowFeedback(true); scrollTop() }} favCount={favs.length} onLogout={handleLogout} showToast={showToast} listings={allListings} onListing={openListing} onDeleteListing={handleDeleteListing} onRefresh={handleRefresh} />}
       </div>
-      <BottomNav active={activeScreen} onChange={goScreen} favCount={favs.length} unreadMessages={0} />
+      <BottomNav active={activeScreen} onChange={goScreen} favCount={favs.length}unreadMessages={unreadMsgs} />
       <Toast msg={toastMsg} />
       <InstallPrompt />
     </>
