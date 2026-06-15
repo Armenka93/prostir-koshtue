@@ -30,8 +30,6 @@ export interface MessageRecord {
   created_at: string
 }
 
-// ── CHATS ─────────────────────────────────────────────────────
-
 export async function getUserChats(userId: string): Promise<ChatRecord[]> {
   const { data, error } = await supabase
     .from('chats')
@@ -47,7 +45,6 @@ export async function getOrCreateChat(
   buyerId: string, buyerName: string,
   sellerId: string, sellerName: string
 ): Promise<ChatRecord | null> {
-  // Check existing
   const { data: existing } = await supabase
     .from('chats').select('*')
     .eq('listing_id', listingId)
@@ -69,22 +66,20 @@ export async function getOrCreateChat(
   return data
 }
 
-// Reset unread to 0 for the viewer
-export async function markChatRead(chatId: string, userId: string, chat: ChatRecord) {
+// Immediately reset unread to 0 when user reads chat
+export async function markChatRead(chatId: string, userId: string, chat: ChatRecord): Promise<void> {
   const isBuyer = chat.buyer_id === userId
   const field = isBuyer ? 'unread_buyer' : 'unread_seller'
-  const current = isBuyer ? chat.unread_buyer : chat.unread_seller
-  if (current === 0) return // already read
-  await supabase.from('chats').update({ [field]: 0 }).eq('id', chatId)
+  const current = isBuyer ? (chat.unread_buyer || 0) : (chat.unread_seller || 0)
+  if (current === 0) return
+  const { error } = await supabase.from('chats').update({ [field]: 0 }).eq('id', chatId)
+  if (error) console.error('[markChatRead]', error.message)
 }
 
-export async function deleteChat(chatId: string) {
-  // messages cascade on delete due to FK
+export async function deleteChat(chatId: string): Promise<void> {
   const { error } = await supabase.from('chats').delete().eq('id', chatId)
   if (error) console.error('[deleteChat]', error.message)
 }
-
-// ── MESSAGES ──────────────────────────────────────────────────
 
 export async function getChatMessages(chatId: string): Promise<MessageRecord[]> {
   const { data, error } = await supabase
@@ -99,62 +94,50 @@ export async function sendMessage(
   chatId: string, senderId: string, senderName: string,
   text: string, chat: ChatRecord
 ): Promise<MessageRecord | null> {
-  // Insert message
   const { data, error } = await supabase
     .from('messages')
     .insert({ chat_id: chatId, sender_id: senderId, sender_name: senderName, text })
     .select().single()
   if (error) { console.error('[sendMessage]', error.message); return null }
 
-  // Update chat: last_message + increment unread for the OTHER person only
+  // Increment unread ONLY for the other person
   const isBuyer = senderId === chat.buyer_id
-  const updateData: Record<string, any> = {
+  const updateData: Record<string, unknown> = {
     last_message: text,
     last_at: new Date().toISOString(),
+    unread_buyer: isBuyer ? 0 : (chat.unread_buyer || 0) + 1,
+    unread_seller: isBuyer ? (chat.unread_seller || 0) + 1 : 0,
   }
-  // Increment unread for receiver, keep sender's unread as-is
-  if (isBuyer) {
-    updateData.unread_seller = (chat.unread_seller || 0) + 1
-    // buyer is sending — their own unread stays 0
-    updateData.unread_buyer = 0
-  } else {
-    updateData.unread_buyer = (chat.unread_buyer || 0) + 1
-    updateData.unread_seller = 0
-  }
-
   await supabase.from('chats').update(updateData).eq('id', chatId)
   return data
 }
 
-// Total unread for a user (for BottomNav badge)
+// For BottomNav badge
 export async function getUnreadCount(userId: string): Promise<number> {
   const { data } = await supabase
-    .from('chats').select('unread_buyer, unread_seller, buyer_id')
+    .from('chats')
+    .select('unread_buyer, unread_seller, buyer_id')
     .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
   if (!data) return 0
-  return data.reduce((sum, c) => {
-    return sum + (c.buyer_id === userId ? (c.unread_buyer || 0) : (c.unread_seller || 0))
-  }, 0)
+  return data.reduce((s, c) =>
+    s + (c.buyer_id === userId ? (c.unread_buyer || 0) : (c.unread_seller || 0)), 0)
 }
 
-// ── REALTIME ──────────────────────────────────────────────────
-
+// Realtime subscriptions
 export function subscribeToMessages(chatId: string, onNew: (msg: MessageRecord) => void) {
   return supabase
     .channel(`msgs_${chatId}_${Date.now()}`)
     .on('postgres_changes', {
       event: 'INSERT', schema: 'public', table: 'messages',
       filter: `chat_id=eq.${chatId}`,
-    }, payload => onNew(payload.new as MessageRecord))
+    }, p => onNew(p.new as MessageRecord))
     .subscribe()
 }
 
 export function subscribeToUserChats(userId: string, onUpdate: () => void) {
   return supabase
-    .channel(`user_chats_${userId}_${Date.now()}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' },
-      () => onUpdate())
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' },
-      () => onUpdate())
+    .channel(`uchats_${userId}_${Date.now()}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, onUpdate)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, onUpdate)
     .subscribe()
 }
