@@ -6,7 +6,36 @@ import {
   deleteChat, subscribeToMessages, subscribeToUserChats,
   type ChatRecord, type MessageRecord,
 } from '@/lib/chats-db'
-import { playSentSound, playReceiveSound } from '@/lib/sound'
+
+// ── Inline sound utils (no external file needed) ─────────────
+function playSentSound() {
+  try {
+    const ctx = new ((window as any).AudioContext || (window as any).webkitAudioContext)()
+    const o = ctx.createOscillator(); const g = ctx.createGain()
+    o.connect(g); g.connect(ctx.destination)
+    o.type = 'sine'; o.frequency.value = 1200
+    g.gain.setValueAtTime(0.07, ctx.currentTime)
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12)
+    o.start(); o.stop(ctx.currentTime + 0.12)
+    setTimeout(() => ctx.close(), 200)
+  } catch {}
+}
+
+function playReceiveSound() {
+  try {
+    const ctx = new ((window as any).AudioContext || (window as any).webkitAudioContext)()
+    const g = ctx.createGain(); g.connect(ctx.destination)
+    ;[880, 1100].forEach((freq, i) => {
+      const o = ctx.createOscillator(); o.connect(g)
+      o.type = 'sine'; o.frequency.value = freq
+      const t = ctx.currentTime + i * 0.1
+      g.gain.setValueAtTime(0.08, t)
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.18)
+      o.start(t); o.stop(t + 0.18)
+    })
+    setTimeout(() => ctx.close(), 500)
+  } catch {}
+}
 
 interface Props {
   user: User | null
