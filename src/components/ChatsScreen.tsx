@@ -81,6 +81,7 @@ function ChatRow({ chat, userId, onOpen, onDelete }: {
           position: 'absolute', right: 0, top: 0, bottom: 0, width: SNAP,
           background: '#EF4444', display: 'flex', alignItems: 'center',
           justifyContent: 'center', cursor: 'pointer',
+          zIndex: 1,
         }}
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -109,12 +110,16 @@ function ChatRow({ chat, userId, onOpen, onDelete }: {
         style={{
           transform: `translateX(${offset}px)`,
           transition: dragging.current ? 'none' : 'transform .22s ease',
-          background: unread > 0 ? 'rgba(255,107,26,.05)' : '#0F1117',
+          background: unread > 0 ? '#1A140D' : '#0F1117',
           padding: '14px 18px',
           display: 'flex', gap: 14, alignItems: 'center',
           cursor: 'pointer',
           userSelect: 'none',
           WebkitUserSelect: 'none' as any,
+          width: '100%',
+          boxSizing: 'border-box' as const,
+          position: 'relative',
+          zIndex: 2,
         }}
       >
         {/* Avatar with unread badge */}
