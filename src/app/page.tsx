@@ -9,6 +9,7 @@ import {
   subscribeToListings, isSupabaseReady,
 } from '@/lib/db'
 import { getUnreadCount } from '@/lib/chats-db'
+import { useChatSoundListener } from '@/components/ChatsScreen'
 
 import SplashScreen from '@/components/SplashScreen'
 import AuthScreen from '@/components/AuthScreen'
@@ -67,6 +68,9 @@ function AppInner() {
   const [initialChatId, setInitialChatId] = useState<string | undefined>(undefined)
   const [toastMsg, setToastMsg] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
+
+  // Background sound for incoming messages on any page
+  useChatSoundListener(user?.id)
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg)
