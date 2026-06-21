@@ -66,6 +66,12 @@ function ChatRow({ chat, userId, onOpen, onDelete }: {
   const dragging = useRef(false)
   const SNAP = 72
 
+  // Reset swipe position whenever chat data changes (new message, reorder, etc.)
+  // Prevents the delete button from staying visible after a new message arrives
+  useEffect(() => {
+    setOffset(0)
+  }, [chat.last_message, chat.last_at])
+
   return (
     <div style={{ position: 'relative', overflow: 'hidden', borderBottom: '1px solid #1A1F2E' }}>
       {/* Delete zone — only visible after swipe */}
