@@ -7,42 +7,11 @@ import {
   type ChatRecord, type MessageRecord,
 } from '@/lib/chats-db'
 
-// ── Inline sound utils (no external file needed) ─────────────
-function playSentSound() {
-  try {
-    const ctx = new ((window as any).AudioContext || (window as any).webkitAudioContext)()
-    const o = ctx.createOscillator(); const g = ctx.createGain()
-    o.connect(g); g.connect(ctx.destination)
-    o.type = 'sine'; o.frequency.value = 1200
-    g.gain.setValueAtTime(0.07, ctx.currentTime)
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12)
-    o.start(); o.stop(ctx.currentTime + 0.12)
-    setTimeout(() => ctx.close(), 200)
-  } catch {}
-}
-
-function playReceiveSound() {
-  try {
-    const ctx = new ((window as any).AudioContext || (window as any).webkitAudioContext)()
-    const g = ctx.createGain(); g.connect(ctx.destination)
-    ;[880, 1100].forEach((freq, i) => {
-      const o = ctx.createOscillator(); o.connect(g)
-      o.type = 'sine'; o.frequency.value = freq
-      const t = ctx.currentTime + i * 0.1
-      g.gain.setValueAtTime(0.08, t)
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.18)
-      o.start(t); o.stop(t + 0.18)
-    })
-    setTimeout(() => ctx.close(), 500)
-  } catch {}
-}
-
 interface Props {
   user: User | null
   isGuest: boolean
   onLogin: () => void
   onRefresh?: () => Promise<void>
-  // If set, auto-open this chat when component mounts
   initialChatId?: string
 }
 
@@ -55,7 +24,37 @@ function timeStr(iso: string): string {
   return d.toLocaleDateString('uk-UA', { day: 'numeric', month: 'short' })
 }
 
-// ── Swipe-to-delete row ───────────────────────────────────────
+// ── Sound (inline, no external file) ─────────────────────────
+function playReceiveSound() {
+  try {
+    const ctx = new ((window as any).AudioContext || (window as any).webkitAudioContext)()
+    const g = ctx.createGain(); g.connect(ctx.destination)
+    ;[880, 1100].forEach((freq, i) => {
+      const o = ctx.createOscillator(); o.connect(g)
+      o.type = 'sine'; o.frequency.value = freq
+      const t = ctx.currentTime + i * 0.12
+      g.gain.setValueAtTime(0.09, t)
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.2)
+      o.start(t); o.stop(t + 0.2)
+    })
+    setTimeout(() => ctx.close(), 600)
+  } catch {}
+}
+
+function playSentSound() {
+  try {
+    const ctx = new ((window as any).AudioContext || (window as any).webkitAudioContext)()
+    const o = ctx.createOscillator(); const g = ctx.createGain()
+    o.connect(g); g.connect(ctx.destination)
+    o.type = 'sine'; o.frequency.value = 1200
+    g.gain.setValueAtTime(0.06, ctx.currentTime)
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1)
+    o.start(); o.stop(ctx.currentTime + 0.1)
+    setTimeout(() => ctx.close(), 200)
+  } catch {}
+}
+
+// ── Swipe-to-delete row (NO visible delete button) ───────────
 function ChatRow({ chat, userId, onOpen, onDelete }: {
   chat: ChatRecord; userId: string; onOpen: () => void; onDelete: () => void
 }) {
@@ -65,57 +64,98 @@ function ChatRow({ chat, userId, onOpen, onDelete }: {
   const startX = useRef(0)
   const [offset, setOffset] = useState(0)
   const dragging = useRef(false)
-  const SNAP = 76
+  const SNAP = 72
 
   return (
     <div style={{ position: 'relative', overflow: 'hidden', borderBottom: '1px solid #1A1F2E' }}>
-      {/* Hidden delete zone */}
-      <div onClick={onDelete} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: SNAP, background: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+      {/* Delete zone — only visible after swipe */}
+      <div
+        onClick={onDelete}
+        style={{
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: SNAP,
+          background: '#EF4444', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', cursor: 'pointer',
+        }}
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+        </svg>
       </div>
 
+      {/* Main row — slides left to reveal delete */}
       <div
         onClick={() => Math.abs(offset) < 8 && onOpen()}
-        onTouchStart={e => { startX.current = e.touches[0].clientX; dragging.current = true }}
+        onTouchStart={e => {
+          startX.current = e.touches[0].clientX
+          dragging.current = true
+        }}
         onTouchMove={e => {
           if (!dragging.current) return
           const dx = e.touches[0].clientX - startX.current
-          setOffset(dx < 0 ? Math.max(dx, -SNAP) : Math.min(dx * 0.15, 3))
+          if (dx < 0) setOffset(Math.max(dx, -SNAP))
+          else setOffset(Math.min(dx * 0.1, 2)) // resist right swipe
         }}
         onTouchEnd={() => {
           dragging.current = false
-          setOffset(p => p < -SNAP / 2 ? -SNAP : 0)
+          setOffset(p => p < -SNAP * 0.5 ? -SNAP : 0)
         }}
         style={{
           transform: `translateX(${offset}px)`,
           transition: dragging.current ? 'none' : 'transform .22s ease',
           background: unread > 0 ? 'rgba(255,107,26,.05)' : '#0F1117',
-          padding: '14px 16px', display: 'flex', gap: 13, alignItems: 'center',
-          cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none' as any,
+          padding: '14px 18px',
+          display: 'flex', gap: 14, alignItems: 'center',
+          cursor: 'pointer',
+          userSelect: 'none',
+          WebkitUserSelect: 'none' as any,
         }}
       >
+        {/* Avatar with unread badge */}
         <div style={{ position: 'relative', flexShrink: 0 }}>
-          <div style={{ width: 50, height: 50, borderRadius: '50%', background: 'linear-gradient(135deg,#FF6B1A,#FFB020)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 700, color: '#fff' }}>
+          <div style={{
+            width: 52, height: 52, borderRadius: '50%',
+            background: 'linear-gradient(135deg,#FF6B1A,#FFB020)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 20, fontWeight: 700, color: '#fff',
+          }}>
             {otherName.charAt(0).toUpperCase()}
           </div>
           {unread > 0 && (
-            <div style={{ position: 'absolute', top: -3, right: -3, background: '#EF4444', color: '#fff', borderRadius: 12, fontSize: 10, fontWeight: 800, padding: '2px 6px', minWidth: 18, textAlign: 'center', lineHeight: 1.4, border: '2px solid #0F1117' }}>
+            <div style={{
+              position: 'absolute', top: -3, right: -3,
+              background: '#EF4444', color: '#fff',
+              borderRadius: 12, fontSize: 10, fontWeight: 800,
+              padding: '2px 6px', minWidth: 18, textAlign: 'center',
+              lineHeight: 1.4, border: '2px solid #0F1117',
+            }}>
               {unread}
             </div>
           )}
         </div>
 
+        {/* Text info */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-            <span style={{ fontSize: 15, fontWeight: unread > 0 ? 700 : 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '64%' }}>{otherName}</span>
+            <span style={{
+              fontSize: 15, fontWeight: unread > 0 ? 700 : 600,
+              color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap', maxWidth: '65%',
+            }}>{otherName}</span>
             <span style={{ fontSize: 11, color: '#6B7280', flexShrink: 0 }}>{timeStr(chat.last_at)}</span>
           </div>
-          <div style={{ fontSize: 12, color: '#FF6B1A', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📍 {chat.listing_title}</div>
-          <div style={{ fontSize: 13, color: unread > 0 ? '#CBD5E1' : '#6B7280', fontWeight: unread > 0 ? 500 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 12, color: '#FF6B1A', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            📍 {chat.listing_title}
+          </div>
+          <div style={{
+            fontSize: 13,
+            color: unread > 0 ? '#CBD5E1' : '#6B7280',
+            fontWeight: unread > 0 ? 500 : 400,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
             {chat.last_message || 'Почніть розмову...'}
           </div>
         </div>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2A3045" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </div>
     </div>
   )
@@ -129,9 +169,11 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [inputH, setInputH] = useState(0)   // keyboard height compensation
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatRef = useRef(chat)
+  chatRef.current = chat
   const otherName = chat.buyer_id === user.id ? chat.seller_name : chat.buyer_name
 
   const scrollDown = useCallback((instant = false) => {
@@ -140,63 +182,50 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     el.scrollTo({ top: el.scrollHeight, behavior: instant ? ('instant' as any) : 'smooth' })
   }, [])
 
+  // Track visual viewport for keyboard
   useEffect(() => {
-    // Load messages
+    const vv = window.visualViewport
+    if (!vv) return
+    const update = () => {
+      const diff = window.innerHeight - vv.height - vv.offsetTop
+      setInputH(Math.max(0, diff))
+      setTimeout(() => scrollDown(true), 80)
+    }
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    return () => {
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
+    }
+  }, [scrollDown])
+
+  useEffect(() => {
     getChatMessages(chat.id).then(msgs => {
       setMessages(msgs)
       setLoading(false)
       setTimeout(() => scrollDown(true), 80)
     })
-
-    // Mark as read immediately on open
     markChatRead(chat.id, user.id, chatRef.current)
 
-    // Realtime — new messages
     const sub = subscribeToMessages(chat.id, (msg) => {
       const fromOther = msg.sender_id !== user.id
-      setMessages(prev => {
-        if (prev.find(m => m.id === msg.id)) return prev
-        return [...prev, msg]
-      })
+      setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg])
       setTimeout(() => scrollDown(), 80)
-
       if (fromOther) {
-        // Play receive sound
         playReceiveSound()
-        // Mark as read since we're viewing this chat
         markChatRead(chat.id, user.id, chatRef.current)
       }
     })
-
-    // Keep chat ref updated
-    const chatUpdate = setInterval(async () => {
-      const { data } = await import('@supabase/supabase-js').then(() =>
-        ({ data: null })
-      ).catch(() => ({ data: null }))
-    }, 30000)
-
-    return () => {
-      sub.unsubscribe()
-      clearInterval(chatUpdate)
-    }
+    return () => { sub.unsubscribe() }
   }, [chat.id, user.id, scrollDown])
-
-  // Handle keyboard — scroll to bottom when keyboard opens
-  useEffect(() => {
-    const vv = window.visualViewport
-    if (!vv) return
-    const handler = () => setTimeout(() => scrollDown(true), 150)
-    vv.addEventListener('resize', handler)
-    return () => vv.removeEventListener('resize', handler)
-  }, [scrollDown])
 
   const handleSend = async () => {
     const t = text.trim()
     if (!t || sending) return
     setSending(true)
     setText('')
+    playSentSound()
 
-    // Optimistic
     const tmp: MessageRecord = {
       id: -Date.now(), chat_id: chat.id,
       sender_id: user.id, sender_name: user.name,
@@ -204,18 +233,19 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     }
     setMessages(p => [...p, tmp])
     setTimeout(() => scrollDown(), 60)
-    playSentSound()
 
     const saved = await sendMessage(chat.id, user.id, user.name, t, chatRef.current)
     if (saved) {
       setMessages(p => p.map(m => m.id === tmp.id ? saved : m))
-      // Update local chatRef with new unread counts
-      const isBuyer = user.id === chat.buyer_id
       chatRef.current = {
         ...chatRef.current,
         last_message: t,
-        unread_seller: isBuyer ? (chatRef.current.unread_seller || 0) + 1 : chatRef.current.unread_seller,
-        unread_buyer: !isBuyer ? (chatRef.current.unread_buyer || 0) + 1 : chatRef.current.unread_buyer,
+        unread_seller: user.id === chat.buyer_id
+          ? (chatRef.current.unread_seller || 0) + 1
+          : chatRef.current.unread_seller,
+        unread_buyer: user.id === chat.seller_id
+          ? (chatRef.current.unread_buyer || 0) + 1
+          : chatRef.current.unread_buyer,
       }
     }
     setSending(false)
@@ -227,6 +257,10 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
       position: 'fixed', inset: 0, zIndex: 200,
       display: 'flex', flexDirection: 'column',
       background: '#0F1117',
+      // Push content up by keyboard height
+      paddingBottom: inputH,
+      boxSizing: 'border-box' as const,
+      transition: 'padding-bottom .05s',
     }}>
       {/* Header */}
       <div style={{
@@ -245,17 +279,23 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
           <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{otherName}</div>
           <div style={{ fontSize: 11, color: '#FF6B1A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📍 {chat.listing_title}</div>
         </div>
-        <button onClick={() => { if (confirm('Видалити чат?')) { deleteChat(chat.id); onDeleted() } }} style={{ background: 'none', border: 'none', color: '#6B7280', cursor: 'pointer', padding: '8px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+        <button onClick={() => { if (confirm('Видалити чат?')) { deleteChat(chat.id); onDeleted() } }}
+          style={{ background: 'none', border: 'none', color: '#6B7280', cursor: 'pointer', padding: '8px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
         </button>
       </div>
 
-      {/* Messages */}
-      <div ref={listRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '12px 16px 4px', display: 'flex', flexDirection: 'column', gap: 8, WebkitOverflowScrolling: 'touch' as any }}>
-        {loading && <div style={{ textAlign: 'center', paddingTop: 40, color: '#6B7280' }}>⏳ Завантаження...</div>}
+      {/* Messages — flex:1 scrollable */}
+      <div ref={listRef} style={{
+        flex: 1, overflowY: 'auto', overflowX: 'hidden',
+        padding: '12px 16px 8px',
+        display: 'flex', flexDirection: 'column', gap: 8,
+        WebkitOverflowScrolling: 'touch' as any,
+      }}>
+        {loading && <div style={{ textAlign: 'center', paddingTop: 40, color: '#6B7280' }}>⏳</div>}
         {!loading && messages.length === 0 && (
           <div style={{ textAlign: 'center', paddingTop: 60, color: '#6B7280', lineHeight: 1.8 }}>
-            👋 Привіт!<br/><span style={{ fontSize: 12 }}>Напишіть перше повідомлення</span>
+            👋 Напишіть перше повідомлення
           </div>
         )}
         {messages.map(msg => {
@@ -275,7 +315,6 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
                   padding: '10px 14px',
                   border: mine ? 'none' : '1px solid #2A3045',
                   opacity: msg.id < 0 ? 0.55 : 1,
-                  boxShadow: mine ? '0 2px 10px rgba(255,107,26,.25)' : 'none',
                 }}>
                   <div style={{ fontSize: 15, color: '#fff', lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</div>
                 </div>
@@ -289,11 +328,14 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         <div style={{ height: 4, flexShrink: 0 }} />
       </div>
 
-      {/* Input bar */}
+      {/* Input — always at bottom, NOT affected by keyboard (paddingBottom on parent handles it) */}
       <div style={{
-        flexShrink: 0, background: '#0D1018', borderTop: '1px solid #1E2334',
+        flexShrink: 0,
+        background: '#0D1018',
+        borderTop: '1px solid #1E2334',
         padding: '10px 16px',
-        paddingBottom: 'max(14px,env(safe-area-inset-bottom,14px))',
+        // Safe area only when keyboard is closed
+        paddingBottom: inputH > 0 ? 10 : 'max(14px,env(safe-area-inset-bottom,14px))',
         display: 'flex', gap: 10, alignItems: 'center',
       }}>
         <input
@@ -301,12 +343,14 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
           value={text}
           onChange={e => setText(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-          onFocus={() => setTimeout(() => scrollDown(true), 250)}
           placeholder="Написати повідомлення..."
           style={{
-            flex: 1, background: '#1A1F2E', border: '1.5px solid #2A3045',
-            borderRadius: 24, padding: '11px 18px', color: '#fff', fontSize: 16,
-            fontFamily: 'Inter,sans-serif', outline: 'none', minWidth: 0,
+            flex: 1, background: '#1A1F2E',
+            border: '1.5px solid #2A3045',
+            borderRadius: 24, padding: '11px 18px',
+            color: '#fff', fontSize: 16,
+            fontFamily: 'Inter,sans-serif',
+            outline: 'none', minWidth: 0,
             WebkitAppearance: 'none' as any,
           }}
         />
@@ -319,7 +363,6 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
             cursor: text.trim() ? 'pointer' : 'default',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             transition: 'background .15s', touchAction: 'manipulation',
-            boxShadow: text.trim() ? '0 2px 12px rgba(255,107,26,.4)' : 'none',
           }}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -332,21 +375,49 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   )
 }
 
-// ── Main ──────────────────────────────────────────────────────
+// ── Background sound listener (runs on all pages) ─────────────
+export function useChatSoundListener(userId: string | undefined) {
+  useEffect(() => {
+    if (!userId) return
+    // Subscribe to ALL new messages for this user
+    const { createClient } = require('@supabase/supabase-js')
+    const sb = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false } }
+    )
+    const channel = sb
+      .channel(`bg_sound_${userId}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'messages',
+      }, (payload: any) => {
+        const msg = payload.new
+        // Only play if message is NOT from me
+        if (msg.sender_id !== userId) {
+          playReceiveSound()
+        }
+      })
+      .subscribe()
+    return () => { channel.unsubscribe() }
+  }, [userId])
+}
+
+// ── Main ChatsScreen ──────────────────────────────────────────
 export default function ChatsScreen({ user, isGuest, onLogin, initialChatId }: Props) {
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [activeChat, setActiveChat] = useState<ChatRecord | null>(null)
+  const openedRef = useRef(false)
 
   const loadChats = useCallback(async () => {
     if (!user) return
     const data = await getUserChats(user.id)
     setChats(data)
     setLoading(false)
-    // Auto-open chat if initialChatId is set
-    if (initialChatId) {
+    // Auto-open chat if initialChatId provided (from DetailScreen)
+    if (initialChatId && !openedRef.current) {
       const target = data.find(c => c.id === initialChatId)
-      if (target) setActiveChat(target)
+      if (target) { setActiveChat(target); openedRef.current = true }
     }
   }, [user, initialChatId])
 
@@ -376,9 +447,13 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId }: P
   }
 
   if (activeChat) {
-    return <ChatWindow chat={activeChat} user={user}
-      onBack={() => { setActiveChat(null); loadChats() }}
-      onDeleted={() => { setActiveChat(null); loadChats() }} />
+    return (
+      <ChatWindow
+        chat={activeChat} user={user}
+        onBack={() => { setActiveChat(null); openedRef.current = false; loadChats() }}
+        onDeleted={() => { setActiveChat(null); openedRef.current = false; loadChats() }}
+      />
+    )
   }
 
   return (
@@ -388,22 +463,32 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId }: P
         {totalUnread > 0 && <span style={{ background: '#EF4444', color: '#fff', fontSize: 12, fontWeight: 700, borderRadius: 20, padding: '3px 12px' }}>{totalUnread} нових</span>}
       </div>
 
-      {chats.length > 0 && <div style={{ padding: '7px 18px', borderBottom: '1px solid #1A1F2E' }}><span style={{ fontSize: 11, color: '#4B5563' }}>← Свайп вліво щоб видалити</span></div>}
+      {chats.length > 0 && (
+        <div style={{ padding: '7px 18px', borderBottom: '1px solid #1A1F2E' }}>
+          <span style={{ fontSize: 11, color: '#4B5563' }}>← Свайп вліво щоб видалити</span>
+        </div>
+      )}
 
-      {loading && <div style={{ textAlign: 'center', padding: '60px 0', color: '#6B7280' }}>⏳ Завантаження...</div>}
+      {loading && <div style={{ textAlign: 'center', padding: '60px 0', color: '#6B7280' }}>⏳</div>}
 
       {!loading && chats.length === 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '70px 24px', gap: 14, textAlign: 'center' }}>
           <div style={{ fontSize: 60 }}>💬</div>
           <div style={{ fontSize: 17, fontWeight: 600, color: '#fff' }}>Поки немає повідомлень</div>
-          <div style={{ fontSize: 13, color: '#6B7280', maxWidth: 260, lineHeight: 1.7 }}>Натисніть 💬 на картці оголошення, щоб написати власнику</div>
+          <div style={{ fontSize: 13, color: '#6B7280', maxWidth: 260, lineHeight: 1.7 }}>Натисніть 💬 на картці оголошення</div>
         </div>
       )}
 
       {!loading && chats.map(chat => (
-        <ChatRow key={chat.id} chat={chat} userId={user.id}
+        <ChatRow
+          key={chat.id} chat={chat} userId={user.id}
           onOpen={() => setActiveChat(chat)}
-          onDelete={async () => { if (!confirm('Видалити чат?')) return; await deleteChat(chat.id); loadChats() }} />
+          onDelete={async () => {
+            if (!confirm('Видалити чат?')) return
+            await deleteChat(chat.id)
+            loadChats()
+          }}
+        />
       ))}
     </div>
   )
