@@ -359,4 +359,67 @@ export async function dbAdjustLikes(id: number, delta: 1 | -1): Promise<void> {
     console.error('[dbAdjustLikes] catch:', e)
   }
 }
+// ═══════════════════════════════════════════════════════════════
+// ДОДАЙ ЦІ ДВІ ФУНКЦІЇ В КІНЕЦЬ ІСНУЮЧОГО src/lib/db.ts
+// (файл вже має `supabase` client та `isSupabaseReady()` — не дублюй їх)
+//
+// ВАЖЛИВО: спочатку виконай sql/counters-fix.sql у Supabase SQL Editor!
+// Ці функції викликають RPC (атомарні SQL-функції), а не read-then-write,
+// тож вони надійно зберігаються навіть при одночасних запитах з різних
+// акаунтів.
+// ═══════════════════════════════════════════════════════════════
+
+export async function dbIncrementViews(id: number): Promise<void> {
+  if (!isSupabaseReady()) return
+  try {
+    const { error } = await supabase.rpc('increment_listing_views', { listing_id: id })
+    if (error) {
+      console.error('[dbIncrementViews] RPC error:', error.message)
+      // Fallback: try a direct read-then-write in case the RPC
+      // function hasn't been created yet in Supabase.
+      const { data } = await supabase.from('listings').select('views').eq('id', id).single()
+      if (data) {
+        await supabase.from('listings').update({ views: (data.views || 0) + 1 }).eq('id', id)
+      }
+    }
+  } catch (e) {
+    console.error('[dbIncrementViews] catch:', e)
+  }
+}
+
+// delta is +1 when added to favorites, -1 when removed
+export async function dbAdjustLikes(id: number, delta: 1 | -1): Promise<void> {
+  if (!isSupabaseReady()) return
+  try {
+    const { error } = await supabase.rpc('adjust_listing_likes', { listing_id: id, delta })
+    if (error) {
+      console.error('[dbAdjustLikes] RPC error:', error.message)
+      const { data } = await supabase.from('listings').select('likes').eq('id', id).single()
+      if (data) {
+        const newLikes = Math.max(0, (data.likes || 0) + delta)
+        await supabase.from('listings').update({ likes: newLikes }).eq('id', id)
+      }
+    }
+  } catch (e) {
+    console.error('[dbAdjustLikes] catch:', e)
+  }
+}
+
+// Fetch the live views/likes for a single listing — useful to refresh
+// the counters when a user opens a listing that someone else already
+// interacted with on a different device.
+export async function dbGetListingCounters(id: number): Promise<{ views: number; likes: number } | null> {
+  if (!isSupabaseReady()) return null
+  try {
+    const { data, error } = await supabase
+      .from('listings')
+      .select('views, likes')
+      .eq('id', id)
+      .single()
+    if (error || !data) return null
+    return { views: data.views || 0, likes: data.likes || 0 }
+  } catch {
+    return null
+  }
+}
 
