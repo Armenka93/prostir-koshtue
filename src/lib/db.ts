@@ -296,26 +296,6 @@ function listingToRow(l: Partial<ListingData>) {
 export async function dbIncrementViews(id: number): Promise<void> {
   if (!isSupabaseReady()) return
   try {
-    const { data, error: readErr } = await supabase
-      .from('listings')
-      .select('views')
-      .eq('id', id)
-      .single()
-    if (readErr || !data) return
-
-    const { error: writeErr } = await supabase
-      .from('listings')
-      .update({ views: (data.views || 0) + 1 })
-      .eq('id', id)
-
-    if (writeErr) console.error('[dbIncrementViews]', writeErr.message)
-  } catch (e) {
-    console.error('[dbIncrementViews] catch:', e)
-  }
-}
-export async function dbIncrementViews(id: number): Promise<void> {
-  if (!isSupabaseReady()) return
-  try {
     // Read current views, then write views+1 — simple and reliable
     // without needing a Postgres RPC function.
     const { data, error: readErr } = await supabase
