@@ -1,8 +1,9 @@
 'use client'
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { ListingData, User } from '@/types'
 import { TYPE_COLORS, maskPhone, formatPhone, telHref } from '@/types'
 import { getOrCreateChat } from '@/lib/chats-db'
+import { dbIncrementViews } from '@/lib/db'
 
 interface Props {
   listing: ListingData
@@ -15,16 +16,21 @@ interface Props {
   onLogin?: () => void
   user?: User | null
   showToast: (m: string) => void
-  onOpenChat?: () => void  // navigate to messages tab
+  onOpenChat?: (chatId: string) => void
 }
 
-function FavBtn({ id, isFav, onFav, style }: { id: number; isFav: boolean; onFav: (id: number) => void; style?: React.CSSProperties }) {
+function FavBtn({ id, isFav, onFav, style, onToast }: {
+  id: number; isFav: boolean; onFav: (id: number) => void
+  style?: React.CSSProperties; onToast?: (becameFav: boolean) => void
+}) {
   const [scale, setScale] = useState(1)
   const click = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     setScale(0.75); setTimeout(() => setScale(1.15), 80); setTimeout(() => setScale(1), 180)
     onFav(id)
-  }, [id, onFav])
+    // isFav reflects state BEFORE the toggle, so the new state is !isFav
+    onToast?.(!isFav)
+  }, [id, onFav, isFav, onToast])
   return (
     <button onClick={click} style={{ ...style, transform: `scale(${scale})`, transition: scale === 1 ? 'transform .15s ease-out' : 'transform .08s ease-in' }}>
       <span style={{ fontSize: 18 }}>{isFav ? '❤️' : '🤍'}</span>
@@ -38,6 +44,9 @@ export default function DetailScreen({
 }: Props) {
   const [showPhone, setShowPhone] = useState(false)
   const [startingChat, setStartingChat] = useState(false)
+  // Local optimistic view count so the number updates instantly without a refetch
+  const [localViews, setLocalViews] = useState(listing.views || 0)
+  const viewCounted = useRef(false)
 
   const data = listing
   const tc = TYPE_COLORS[data.type] || '#FF6B1A'
@@ -49,10 +58,26 @@ export default function DetailScreen({
   const maskedPhone = data.ownerPhone ? maskPhone(data.ownerPhone) : '*** *** ****'
   const displayPhone = data.ownerPhone ? formatPhone(data.ownerPhone) : ''
   const phoneHref = data.ownerPhone ? telHref(data.ownerPhone) : ''
+  const isMockListing = data.id < 100 // mock data has small ids, no real DB row to update
+
+  // ── Count a view once per screen visit ─────────────────────
+  useEffect(() => {
+    if (viewCounted.current) return
+    viewCounted.current = true
+    // Don't count views on your own listing or on mock/demo listings
+    if (isOwn || isMockListing) return
+    setLocalViews(v => v + 1)
+    dbIncrementViews(data.id).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.id])
 
   const handleReveal = () => {
     if (!isLoggedIn) { onLogin?.(); return }
     setShowPhone(true)
+  }
+
+  const handleFavToast = (becameFav: boolean) => {
+    showToast(becameFav ? '❤️ Додано в обране' : '💔 Видалено з обраного')
   }
 
   // ── Open Supabase chat ────────────────────────────────────
@@ -80,7 +105,7 @@ export default function DetailScreen({
       )
       if (chat) {
         showToast('✅ Чат відкрито!')
-        onOpenChat?.()
+        onOpenChat?.(chat.id)
         onBack()
       } else {
         showToast('❌ Помилка створення чату')
@@ -113,7 +138,7 @@ export default function DetailScreen({
           width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer', fontSize: 18, backdropFilter: 'blur(6px)', color: '#fff', zIndex: 10,
         }}>←</button>
-        <FavBtn id={listing.id} isFav={isFavorite} onFav={onFavorite} style={{
+        <FavBtn id={listing.id} isFav={isFavorite} onFav={onFavorite} onToast={handleFavToast} style={{
           position: 'absolute', top: 'max(48px, env(safe-area-inset-top, 48px))', right: 16,
           background: 'rgba(15,17,23,0.75)', border: 'none', borderRadius: 12,
           width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -235,9 +260,9 @@ export default function DetailScreen({
           </div>
         )}
 
-        {/* Stats */}
+        {/* View / like counters — now reflect real-time updates */}
         <div style={{ display: 'flex', gap: 16, marginBottom: 20, fontSize: 12, color: '#6B7280' }}>
-          <span>👁 {data.views || 0} переглядів</span>
+          <span>👁 {localViews} переглядів</span>
           <span>❤️ {data.likes || 0} вподобань</span>
         </div>
 
@@ -307,7 +332,7 @@ export default function DetailScreen({
           )}
 
           {/* Fav button */}
-          <FavBtn id={data.id} isFav={isFavorite} onFav={onFavorite} style={{
+          <FavBtn id={data.id} isFav={isFavorite} onFav={onFavorite} onToast={handleFavToast} style={{
             padding: '15px 18px', background: '#1A1F2E', border: '1px solid #2A3045',
             borderRadius: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
           }} />
