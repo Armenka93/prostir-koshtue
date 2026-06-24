@@ -195,24 +195,21 @@ function AppInner() {
       features: data.features || [],
     }
 
-    const tempId = Date.now()
-    const tempListing: ListingData = {
-      ...toPublish as ListingData,
-      id: tempId, isActive: true, isNew: true, isPromoted: false, isFeatured: false,
-      views: 0, likes: 0, score: 0, promotedUntil: null,
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    }
-    setDbListings(prev => [tempListing, ...prev])
-
+    // No optimistic temp entry — realtime subscription will add the
+    // real DB row the moment Supabase confirms the insert. This avoids
+    // the duplicate-then-merge flicker (temp row + realtime row + saved row).
     const saved = await dbPublishListing(toPublish)
     if (saved) {
-      setDbListings(prev => [saved, ...prev.filter(l => l.id !== tempId)])
+      // Add immediately in case realtime event hasn't arrived yet.
+      // The realtime handler already dedupes by id, so this is safe
+      // even if the realtime event fires a moment later.
+      setDbListings(prev => prev.find(l => l.id === saved.id) ? prev : [saved, ...prev])
+      setRefreshTick(t => t + 1)
       showToast('✅ Оголошення опубліковано!')
     } else {
       showToast('⚠️ Помилка збереження. Перевірте підключення.')
     }
 
-    setRefreshTick(t => t + 1)
     setShowAdd(false)
     setActiveScreen('requests')
     scrollTop()
