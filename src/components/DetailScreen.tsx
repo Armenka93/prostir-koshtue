@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import type { ListingData, User } from '@/types'
 import { TYPE_COLORS, maskPhone, formatPhone, telHref } from '@/types'
 import { getOrCreateChat } from '@/lib/chats-db'
-import { dbIncrementViews } from '@/lib/db'
+import { dbIncrementViews, dbAdjustLikes } from '@/lib/db'
 
 interface Props {
   listing: ListingData
@@ -44,8 +44,9 @@ export default function DetailScreen({
 }: Props) {
   const [showPhone, setShowPhone] = useState(false)
   const [startingChat, setStartingChat] = useState(false)
-  // Local optimistic view count so the number updates instantly without a refetch
+  // Local optimistic counters so the numbers update instantly without a refetch
   const [localViews, setLocalViews] = useState(listing.views || 0)
+  const [localLikes, setLocalLikes] = useState(listing.likes || 0)
   const viewCounted = useRef(false)
 
   const data = listing
@@ -78,6 +79,12 @@ export default function DetailScreen({
 
   const handleFavToast = (becameFav: boolean) => {
     showToast(becameFav ? '❤️ Додано в обране' : '💔 Видалено з обраного')
+    // Update the visible like counter immediately
+    setLocalLikes(v => Math.max(0, v + (becameFav ? 1 : -1)))
+    // Persist the change in Supabase (skip for mock/demo listings)
+    if (!isMockListing) {
+      dbAdjustLikes(data.id, becameFav ? 1 : -1).catch(() => {})
+    }
   }
 
   // ── Open Supabase chat ────────────────────────────────────
@@ -263,7 +270,7 @@ export default function DetailScreen({
         {/* View / like counters — now reflect real-time updates */}
         <div style={{ display: 'flex', gap: 16, marginBottom: 20, fontSize: 12, color: '#6B7280' }}>
           <span>👁 {localViews} переглядів</span>
-          <span>❤️ {data.likes || 0} вподобань</span>
+          <span>❤️ {localLikes} вподобань</span>
         </div>
 
         {/* Similar */}
