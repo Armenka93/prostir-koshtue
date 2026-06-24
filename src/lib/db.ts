@@ -313,3 +313,50 @@ export async function dbIncrementViews(id: number): Promise<void> {
     console.error('[dbIncrementViews] catch:', e)
   }
 }
+export async function dbIncrementViews(id: number): Promise<void> {
+  if (!isSupabaseReady()) return
+  try {
+    // Read current views, then write views+1 — simple and reliable
+    // without needing a Postgres RPC function.
+    const { data, error: readErr } = await supabase
+      .from('listings')
+      .select('views')
+      .eq('id', id)
+      .single()
+    if (readErr || !data) return
+
+    const { error: writeErr } = await supabase
+      .from('listings')
+      .update({ views: (data.views || 0) + 1 })
+      .eq('id', id)
+
+    if (writeErr) console.error('[dbIncrementViews]', writeErr.message)
+  } catch (e) {
+    console.error('[dbIncrementViews] catch:', e)
+  }
+}
+
+// delta is +1 when added to favorites, -1 when removed
+export async function dbAdjustLikes(id: number, delta: 1 | -1): Promise<void> {
+  if (!isSupabaseReady()) return
+  try {
+    const { data, error: readErr } = await supabase
+      .from('listings')
+      .select('likes')
+      .eq('id', id)
+      .single()
+    if (readErr || !data) return
+
+    const newLikes = Math.max(0, (data.likes || 0) + delta)
+
+    const { error: writeErr } = await supabase
+      .from('listings')
+      .update({ likes: newLikes })
+      .eq('id', id)
+
+    if (writeErr) console.error('[dbAdjustLikes]', writeErr.message)
+  } catch (e) {
+    console.error('[dbAdjustLikes] catch:', e)
+  }
+}
+
