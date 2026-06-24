@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import type { ListingData, User } from '@/types'
 import { TYPE_COLORS, maskPhone, formatPhone, telHref } from '@/types'
 import { getOrCreateChat } from '@/lib/chats-db'
-import { dbIncrementViews, dbAdjustLikes } from '@/lib/db'
+import { dbIncrementViews, dbAdjustLikes, dbGetListingCounters } from '@/lib/db'
 
 interface Props {
   listing: ListingData
@@ -61,14 +61,29 @@ export default function DetailScreen({
   const phoneHref = data.ownerPhone ? telHref(data.ownerPhone) : ''
   const isMockListing = data.id < 100 // mock data has small ids, no real DB row to update
 
-  // ── Count a view once per screen visit ─────────────────────
+  // ── Count a view once per screen visit, then re-sync with the DB ──
   useEffect(() => {
     if (viewCounted.current) return
     viewCounted.current = true
+
     // Don't count views on your own listing or on mock/demo listings
     if (isOwn || isMockListing) return
-    setLocalViews(v => v + 1)
-    dbIncrementViews(data.id).catch(() => {})
+
+    let cancelled = false
+    ;(async () => {
+      // 1) Record the view in Supabase (atomic RPC — safe for concurrent users)
+      await dbIncrementViews(data.id)
+      // 2) Re-fetch the real numbers from the DB so what's shown on screen
+      //    always matches what every other user/device will see, instead
+      //    of trusting a stale `listing.views` prop from the feed list.
+      const fresh = await dbGetListingCounters(data.id)
+      if (!cancelled && fresh) {
+        setLocalViews(fresh.views)
+        setLocalLikes(fresh.likes)
+      }
+    })()
+
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.id])
 
@@ -77,13 +92,24 @@ export default function DetailScreen({
     setShowPhone(true)
   }
 
-  const handleFavToast = (becameFav: boolean) => {
+  const handleFavToast = async (becameFav: boolean) => {
     showToast(becameFav ? '❤️ Додано в обране' : '💔 Видалено з обраного')
-    // Update the visible like counter immediately
+
+    // Show the optimistic number immediately
     setLocalLikes(v => Math.max(0, v + (becameFav ? 1 : -1)))
-    // Persist the change in Supabase (skip for mock/demo listings)
-    if (!isMockListing) {
-      dbAdjustLikes(data.id, becameFav ? 1 : -1).catch(() => {})
+
+    // Skip persisting for mock/demo listings — they have no real DB row
+    if (isMockListing) return
+
+    try {
+      await dbAdjustLikes(data.id, becameFav ? 1 : -1)
+      // Re-sync with the DB to guarantee what's on screen matches what
+      // every other device will see (covers any race with other users
+      // favoriting the same listing at the same time).
+      const fresh = await dbGetListingCounters(data.id)
+      if (fresh) setLocalLikes(fresh.likes)
+    } catch (e) {
+      console.error('[handleFavToast] failed to persist like:', e)
     }
   }
 
