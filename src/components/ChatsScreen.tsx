@@ -220,7 +220,22 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 
     const sub = subscribeToMessages(chat.id, (msg) => {
       const fromOther = msg.sender_id !== user.id
-      setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg])
+      setMessages(prev => {
+        // Already have this exact message? skip.
+        if (prev.find(m => m.id === msg.id)) return prev
+        // If this is MY OWN message arriving via realtime, it means
+        // the optimistic temp bubble (negative id) is still showing —
+        // replace it instead of appending, so we never show both.
+        if (!fromOther) {
+          const tempIdx = prev.findIndex(m => m.id < 0 && m.text === msg.text && m.sender_id === msg.sender_id)
+          if (tempIdx !== -1) {
+            const copy = [...prev]
+            copy[tempIdx] = msg
+            return copy
+          }
+        }
+        return [...prev, msg]
+      })
       setTimeout(() => scrollDown(), 80)
       if (fromOther) {
         playReceiveSound()
@@ -247,7 +262,13 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 
     const saved = await sendMessage(chat.id, user.id, user.name, t, chatRef.current)
     if (saved) {
-      setMessages(p => p.map(m => m.id === tmp.id ? saved : m))
+      setMessages(p => {
+        // If realtime already replaced/added it, just make sure no
+        // duplicate or leftover temp bubble remains.
+        const hasReal = p.find(m => m.id === saved.id)
+        if (hasReal) return p.filter(m => m.id !== tmp.id)
+        return p.map(m => m.id === tmp.id ? saved : m)
+      })
       chatRef.current = {
         ...chatRef.current,
         last_message: t,
