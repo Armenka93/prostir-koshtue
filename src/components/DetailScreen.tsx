@@ -48,6 +48,10 @@ export default function DetailScreen({
   const [localViews, setLocalViews] = useState(listing.views || 0)
   const [localLikes, setLocalLikes] = useState(listing.likes || 0)
   const viewCounted = useRef(false)
+  // Tracks whether the user has clicked the like button during this
+  // screen visit, so the async initial-load fetch (views/likes from DB)
+  // never overwrites a click that happened while it was in flight.
+  const likeClicked = useRef(false)
 
   const data = listing
   const tc = TYPE_COLORS[data.type] || '#FF6B1A'
@@ -77,9 +81,15 @@ export default function DetailScreen({
       //    always matches what every other user/device will see, instead
       //    of trusting a stale `listing.views` prop from the feed list.
       const fresh = await dbGetListingCounters(data.id)
+      // Guard: if the user already clicked the like button while this
+      // network round-trip was in flight, don't let this stale response
+      // overwrite their optimistic like count — that's what caused the
+      // counter to flicker between different numbers.
       if (!cancelled && fresh) {
         setLocalViews(fresh.views)
-        setLocalLikes(fresh.likes)
+        if (!likeClicked.current) {
+          setLocalLikes(fresh.likes)
+        }
       }
     })()
 
@@ -94,20 +104,22 @@ export default function DetailScreen({
 
   const handleFavToast = async (becameFav: boolean) => {
     showToast(becameFav ? '❤️ Додано в обране' : '💔 Видалено з обраного')
+    likeClicked.current = true
 
-    // Show the optimistic number immediately
+    // Show the optimistic number immediately — this is the number we
+    // trust going forward, since we know the exact delta we just applied.
     setLocalLikes(v => Math.max(0, v + (becameFav ? 1 : -1)))
 
     // Skip persisting for mock/demo listings — they have no real DB row
     if (isMockListing) return
 
     try {
+      // Fire-and-forget the DB write. We deliberately do NOT re-fetch
+      // and overwrite localLikes afterwards — the optimistic value above
+      // is already correct, and re-fetching here is exactly what caused
+      // the counter to jump around when combined with the initial-load
+      // fetch in the effect above.
       await dbAdjustLikes(data.id, becameFav ? 1 : -1)
-      // Re-sync with the DB to guarantee what's on screen matches what
-      // every other device will see (covers any race with other users
-      // favoriting the same listing at the same time).
-      const fresh = await dbGetListingCounters(data.id)
-      if (fresh) setLocalLikes(fresh.likes)
     } catch (e) {
       console.error('[handleFavToast] failed to persist like:', e)
     }
