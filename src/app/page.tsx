@@ -7,6 +7,7 @@ import { loadSession, saveSession, clearSession } from '@/lib/auth'
 import {
   dbGetListings, dbPublishListing, dbDeleteListing,
   subscribeToListings, isSupabaseReady,
+  dbAdjustLikes,
 } from '@/lib/db'
 import { getUnreadCount } from '@/lib/chats-db'
 import { useChatSoundListener } from '@/components/ChatsScreen'
@@ -69,6 +70,14 @@ function AppInner() {
   const [toastMsg, setToastMsg] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
 
+  // Keep a ref mirror of favs so toggleFav always reads the LATEST value,
+  // never a value captured by a stale closure. This was the root cause
+  // of the like counter flickering between different numbers: clicking
+  // fast, or clicking right after a re-render, could call toggleFav with
+  // an outdated `favs` snapshot.
+  const favsRef = useRef<number[]>([])
+  useEffect(() => { favsRef.current = favs }, [favs])
+
   // Background sound for incoming messages on any page
   useChatSoundListener(user?.id)
 
@@ -95,7 +104,9 @@ function AppInner() {
     const savedUser = loadSession()
     if (savedUser) {
       setUser(savedUser)
-      setFavs(loadFavs(savedUser.id))
+      const loaded = loadFavs(savedUser.id)
+      setFavs(loaded)
+      favsRef.current = loaded
       setPhase('app')
     }
     loadListings()
@@ -110,7 +121,11 @@ function AppInner() {
     return () => clearInterval(t)
   }, [user])
 
-  // Realtime listings
+  // Realtime listings — also keeps views/likes counters fresh across
+  // devices: any UPDATE (not just INSERT/DELETE) now merges into the
+  // local list, so if someone else likes/views a listing while you're
+  // browsing, the numbers update live instead of staying stale until
+  // the next full reload.
   useEffect(() => {
     const channel = subscribeToListings(
       (newListing) => {
@@ -130,19 +145,45 @@ function AppInner() {
     showToast('✅ Оновлено!')
   }, [loadListings, showToast])
 
+  // ── Single atomic toggle for favorites ──────────────────────────
+  // This is the ONE place that decides whether a listing becomes
+  // favorited or unfavorited, and it does both things that need to
+  // happen together:
+  //   1) update the user's personal favorites list (localStorage)
+  //   2) adjust the shared "likes" counter on the listing in Supabase
+  // Previously these two were handled in two different components
+  // (page.tsx for the favorites list, DetailScreen.tsx for the Supabase
+  // counter) using two different snapshots of "is this favorited",
+  // which could disagree with each other and cause the displayed
+  // number to jump around or fail to persist a removal.
   const toggleFav = useCallback((id: number) => {
-    setFavs(prev => {
-      const next = prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
-      if (user) saveFavs(user.id, next)
-      return next
-    })
-  }, [user])
+    const current = favsRef.current
+    const wasFav = current.includes(id)
+    const next = wasFav ? current.filter(f => f !== id) : [...current, id]
+
+    favsRef.current = next
+    setFavs(next)
+    if (user) saveFavs(user.id, next)
+
+    // Skip the Supabase counter for mock/demo listings (small ids,
+    // no real row to update) — matches the rule already used elsewhere.
+    if (id >= 100) {
+      const delta: 1 | -1 = wasFav ? -1 : 1
+      dbAdjustLikes(id, delta).catch(e => {
+        console.error('[toggleFav] failed to persist like delta:', e)
+      })
+    }
+
+    showToast(wasFav ? '💔 Видалено з обраного' : '❤️ Додано в обране')
+  }, [user, showToast])
 
   const handleLogin = async (u: User) => {
     setUser(u)
     setIsGuest(false)
     saveSession(u)
-    setFavs(loadFavs(u.id))
+    const loaded = loadFavs(u.id)
+    setFavs(loaded)
+    favsRef.current = loaded
     await loadListings()
     setPhase('app')
     scrollTop()
@@ -162,6 +203,7 @@ function AppInner() {
     setUser(null)
     setIsGuest(false)
     setFavs([])
+    favsRef.current = []
     setUnreadMsgs(0)
     setPhase('splash')
     scrollTop()
