@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import type { ListingData, User } from '@/types'
 import { TYPE_COLORS, maskPhone, formatPhone, telHref } from '@/types'
 import { getOrCreateChat } from '@/lib/chats-db'
-import { dbIncrementViews, dbAdjustLikes, dbGetListingCounters } from '@/lib/db'
+import { dbIncrementViews, dbGetListingCounters } from '@/lib/db'
 
 interface Props {
   listing: ListingData
@@ -19,18 +19,20 @@ interface Props {
   onOpenChat?: (chatId: string) => void
 }
 
-function FavBtn({ id, isFav, onFav, style, onToast }: {
+function FavBtn({ id, isFav, onFav, style }: {
   id: number; isFav: boolean; onFav: (id: number) => void
-  style?: React.CSSProperties; onToast?: (becameFav: boolean) => void
+  style?: React.CSSProperties
 }) {
   const [scale, setScale] = useState(1)
   const click = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     setScale(0.75); setTimeout(() => setScale(1.15), 80); setTimeout(() => setScale(1), 180)
+    // onFav (= the toggleFav passed down from page.tsx) now handles
+    // everything in one atomic place: updating the personal favorites
+    // list, writing the +1/-1 delta to Supabase, and showing the toast.
+    // DetailScreen no longer needs its own parallel bookkeeping for this.
     onFav(id)
-    // isFav reflects state BEFORE the toggle, so the new state is !isFav
-    onToast?.(!isFav)
-  }, [id, onFav, isFav, onToast])
+  }, [id, onFav])
   return (
     <button onClick={click} style={{ ...style, transform: `scale(${scale})`, transition: scale === 1 ? 'transform .15s ease-out' : 'transform .08s ease-in' }}>
       <span style={{ fontSize: 18 }}>{isFav ? '❤️' : '🤍'}</span>
@@ -44,14 +46,9 @@ export default function DetailScreen({
 }: Props) {
   const [showPhone, setShowPhone] = useState(false)
   const [startingChat, setStartingChat] = useState(false)
-  // Local optimistic counters so the numbers update instantly without a refetch
+  // Local optimistic view count so the number updates instantly without a refetch
   const [localViews, setLocalViews] = useState(listing.views || 0)
-  const [localLikes, setLocalLikes] = useState(listing.likes || 0)
   const viewCounted = useRef(false)
-  // Tracks whether the user has clicked the like button during this
-  // screen visit, so the async initial-load fetch (views/likes from DB)
-  // never overwrites a click that happened while it was in flight.
-  const likeClicked = useRef(false)
 
   const data = listing
   const tc = TYPE_COLORS[data.type] || '#FF6B1A'
@@ -66,6 +63,10 @@ export default function DetailScreen({
   const isMockListing = data.id < 100 // mock data has small ids, no real DB row to update
 
   // ── Count a view once per screen visit, then re-sync with the DB ──
+  // This is the ONLY place that writes/reads from Supabase for this
+  // screen now — the like/favorite counter is handled entirely by the
+  // parent (page.tsx's toggleFav), so there's nothing here that can
+  // race with a button click anymore.
   useEffect(() => {
     if (viewCounted.current) return
     viewCounted.current = true
@@ -75,21 +76,10 @@ export default function DetailScreen({
 
     let cancelled = false
     ;(async () => {
-      // 1) Record the view in Supabase (atomic RPC — safe for concurrent users)
       await dbIncrementViews(data.id)
-      // 2) Re-fetch the real numbers from the DB so what's shown on screen
-      //    always matches what every other user/device will see, instead
-      //    of trusting a stale `listing.views` prop from the feed list.
       const fresh = await dbGetListingCounters(data.id)
-      // Guard: if the user already clicked the like button while this
-      // network round-trip was in flight, don't let this stale response
-      // overwrite their optimistic like count — that's what caused the
-      // counter to flicker between different numbers.
       if (!cancelled && fresh) {
         setLocalViews(fresh.views)
-        if (!likeClicked.current) {
-          setLocalLikes(fresh.likes)
-        }
       }
     })()
 
@@ -102,28 +92,23 @@ export default function DetailScreen({
     setShowPhone(true)
   }
 
-  const handleFavToast = async (becameFav: boolean) => {
-    showToast(becameFav ? '❤️ Додано в обране' : '💔 Видалено з обраного')
-    likeClicked.current = true
-
-    // Show the optimistic number immediately — this is the number we
-    // trust going forward, since we know the exact delta we just applied.
-    setLocalLikes(v => Math.max(0, v + (becameFav ? 1 : -1)))
-
-    // Skip persisting for mock/demo listings — they have no real DB row
-    if (isMockListing) return
-
-    try {
-      // Fire-and-forget the DB write. We deliberately do NOT re-fetch
-      // and overwrite localLikes afterwards — the optimistic value above
-      // is already correct, and re-fetching here is exactly what caused
-      // the counter to jump around when combined with the initial-load
-      // fetch in the effect above.
-      await dbAdjustLikes(data.id, becameFav ? 1 : -1)
-    } catch (e) {
-      console.error('[handleFavToast] failed to persist like:', e)
+  // ── Likes counter ───────────────────────────────────────────────
+  // localLikes mirrors `listing.likes` from the DB (the baseline number
+  // before any click on this screen), then bumps up/down by exactly one
+  // every time `isFavorite` flips. Since `isFavorite` is computed in
+  // page.tsx from `favs.includes(id)` — the single source of truth for
+  // whether *this* user has favorited the listing — this number can no
+  // longer drift out of sync with the actual click that was applied.
+  const baseLikes = useRef(listing.likes || 0)
+  const prevFav = useRef(isFavorite)
+  const [likeDelta, setLikeDelta] = useState(0)
+  useEffect(() => {
+    if (prevFav.current !== isFavorite) {
+      setLikeDelta(d => d + (isFavorite ? 1 : -1))
+      prevFav.current = isFavorite
     }
-  }
+  }, [isFavorite])
+  const localLikes = Math.max(0, baseLikes.current + likeDelta)
 
   // ── Open Supabase chat ────────────────────────────────────
   const handleWriteToSeller = async () => {
@@ -183,7 +168,7 @@ export default function DetailScreen({
           width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer', fontSize: 18, backdropFilter: 'blur(6px)', color: '#fff', zIndex: 10,
         }}>←</button>
-        <FavBtn id={listing.id} isFav={isFavorite} onFav={onFavorite} onToast={handleFavToast} style={{
+        <FavBtn id={listing.id} isFav={isFavorite} onFav={onFavorite} style={{
           position: 'absolute', top: 'max(48px, env(safe-area-inset-top, 48px))', right: 16,
           background: 'rgba(15,17,23,0.75)', border: 'none', borderRadius: 12,
           width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -377,7 +362,7 @@ export default function DetailScreen({
           )}
 
           {/* Fav button */}
-          <FavBtn id={data.id} isFav={isFavorite} onFav={onFavorite} onToast={handleFavToast} style={{
+          <FavBtn id={data.id} isFav={isFavorite} onFav={onFavorite} style={{
             padding: '15px 18px', background: '#1A1F2E', border: '1px solid #2A3045',
             borderRadius: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
           }} />
