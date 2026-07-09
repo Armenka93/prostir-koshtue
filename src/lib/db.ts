@@ -2,9 +2,7 @@
  * DATABASE LAYER — Supabase
  * Full CRUD + Realtime + Debug logging
  */
-import { createClient } from '@supabase/supabase-js'
-import type { ListingData } from '@/types'
-
+import { supabase } from './supabase'import type { ListingData } from '@/types'
 import { supabase } from './supabase'
 export { supabase }
 
