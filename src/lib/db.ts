@@ -6,7 +6,7 @@ import { supabase } from './supabase'
 import type { ListingData } from '@/types'
 
 export function isSupabaseReady(): boolean {
-  const ready = !!(supabaseUrl && supabaseKey)
+  const ready = !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
   if (!ready) console.warn('[db] Supabase not configured! Check env vars.')
   return ready
 }
