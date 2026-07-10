@@ -2,9 +2,8 @@
  * DATABASE LAYER — Supabase
  * Full CRUD + Realtime + Debug logging
  */
-import { supabase } from './supabase'import type { ListingData } from '@/types'
 import { supabase } from './supabase'
-export { supabase }
+import type { ListingData } from '@/types'
 
 export function isSupabaseReady(): boolean {
   const ready = !!(supabaseUrl && supabaseKey)
