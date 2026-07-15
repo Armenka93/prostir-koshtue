@@ -7,7 +7,7 @@ import { loadSession, saveSession, clearSession } from '@/lib/auth'
 import {
   dbGetListings, dbPublishListing, dbDeleteListing,
   subscribeToListings, isSupabaseReady,
-  dbAdjustLikes,
+  dbGetUserFavorites, dbAddFavorite, dbRemoveFavorite,
 } from '@/lib/db'
 import { getUnreadCount } from '@/lib/chats-db'
 import { useChatSoundListener } from '@/components/ChatsScreen'
@@ -102,10 +102,19 @@ function AppInner() {
     const savedUser = loadSession()
     if (savedUser) {
       setUser(savedUser)
-      const loaded = loadFavs(savedUser.id)
-      setFavs(loaded)
-      favsRef.current = loaded
       setPhase('app')
+      // Show cached favorites instantly (from localStorage), then replace
+      // with the authoritative list from Supabase. This is what makes the
+      // hearts survive logging out / switching device / clearing the browser:
+      // the source of truth now lives in the DB, keyed by the account id.
+      const cached = loadFavs(savedUser.id)
+      setFavs(cached)
+      favsRef.current = cached
+      dbGetUserFavorites(savedUser.id).then(remote => {
+        setFavs(remote)
+        favsRef.current = remote
+        saveFavs(savedUser.id, remote) // refresh the local cache
+      })
     }
     loadListings()
   }, [loadListings])
@@ -159,18 +168,33 @@ function AppInner() {
     const wasFav = current.includes(id)
     const next = wasFav ? current.filter(f => f !== id) : [...current, id]
 
+    // Optimistic update: flip the heart immediately in the UI.
     favsRef.current = next
     setFavs(next)
-    if (user) saveFavs(user.id, next)
+    if (user) saveFavs(user.id, next) // keep the local cache in step
 
-    // Skip the Supabase counter for mock/demo listings — they have no real
-    // row in the DB to update. Uses the shared MOCK_IDS check (see
-    // src/lib/mockData.ts) rather than a numeric id threshold, which
-    // wrongly matched real early DB rows (ids 13, 15, ...) as "mock".
-    if (!isMockListingId(id)) {
-      const delta: 1 | -1 = wasFav ? -1 : 1
-      dbAdjustLikes(id, delta).catch(e => {
-        console.error('[toggleFav] failed to persist like delta:', e)
+    // Persist to Supabase so the heart survives logout / other devices.
+    // Only for logged-in users (favorites are tied to an account id) and
+    // only for real DB listings — mock/demo listings (see MOCK_IDS in
+    // src/lib/mockData.ts) have no row to reference. The listings.likes
+    // counter is updated automatically by the favorites_sync_likes DB
+    // trigger, so we deliberately do NOT touch it here.
+    if (user && !isMockListingId(id)) {
+      const op = wasFav
+        ? dbRemoveFavorite(user.id, id)
+        : dbAddFavorite(user.id, id)
+      op.then(ok => {
+        if (!ok) {
+          // Roll back the optimistic change if the write failed, so the UI
+          // never claims something is saved when it isn't.
+          const reverted = wasFav ? [...favsRef.current, id] : favsRef.current.filter(f => f !== id)
+          favsRef.current = reverted
+          setFavs(reverted)
+          if (user) saveFavs(user.id, reverted)
+          showToast('⚠️ Не вдалося зберегти. Спробуйте ще раз.')
+        }
+      }).catch(e => {
+        console.error('[toggleFav] persist failed:', e)
       })
     }
 
@@ -181,9 +205,16 @@ function AppInner() {
     setUser(u)
     setIsGuest(false)
     saveSession(u)
-    const loaded = loadFavs(u.id)
-    setFavs(loaded)
-    favsRef.current = loaded
+    // Show cached favorites right away, then load the authoritative list
+    // from Supabase so it's identical on every device this account uses.
+    const cached = loadFavs(u.id)
+    setFavs(cached)
+    favsRef.current = cached
+    dbGetUserFavorites(u.id).then(remote => {
+      setFavs(remote)
+      favsRef.current = remote
+      saveFavs(u.id, remote)
+    })
     await loadListings()
     setPhase('app')
     scrollTop()
