@@ -1,7 +1,7 @@
 'use client'
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import type { ListingData, User } from '@/types'
-import { MOCK_LISTINGS } from '@/lib/mockData'
+import { MOCK_LISTINGS, MOCK_IDS, isMockListingId } from '@/lib/mockData'
 import { loadFavs, saveFavs } from '@/lib/storage'
 import { loadSession, saveSession, clearSession } from '@/lib/auth'
 import {
@@ -29,8 +29,6 @@ import InstallPrompt from '@/components/InstallPrompt'
 
 type Screen = 'home' | 'messages' | 'favorites' | 'requests' | 'profile'
 type Phase = 'splash' | 'auth' | 'app'
-
-const MOCK_IDS = new Set(MOCK_LISTINGS.map(l => l.id))
 
 function scrollTop() {
   if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
@@ -165,9 +163,11 @@ function AppInner() {
     setFavs(next)
     if (user) saveFavs(user.id, next)
 
-    // Skip the Supabase counter for mock/demo listings (small ids,
-    // no real row to update) — matches the rule already used elsewhere.
-    if (id >= 100) {
+    // Skip the Supabase counter for mock/demo listings — they have no real
+    // row in the DB to update. Uses the shared MOCK_IDS check (see
+    // src/lib/mockData.ts) rather than a numeric id threshold, which
+    // wrongly matched real early DB rows (ids 13, 15, ...) as "mock".
+    if (!isMockListingId(id)) {
       const delta: 1 | -1 = wasFav ? -1 : 1
       dbAdjustLikes(id, delta).catch(e => {
         console.error('[toggleFav] failed to persist like delta:', e)
