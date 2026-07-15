@@ -41,3 +41,28 @@ export function buildFeed(listings: ListingData[]): FeedData {
     .slice(0, FEED_NEW_LIMIT)
   return { rekomendovani, populyarni, novi }
 }
+
+// Called once, right before a brand-new listing is sent to Supabase (see
+// AddListingScreen.tsx). Stamps the fields that must always start at their
+// "just published" values, regardless of whatever the form state contains.
+//
+// This function was accidentally deleted in a previous fix attempt (commit
+// 12aef80, "Update listing-logic.ts") while AddListingScreen.tsx was never
+// updated to match — the dangling import made every publish attempt throw
+// `enrichNewListing is not a function` the instant the button was pressed,
+// before any network request was made. That's why the button looked like it
+// was "loading" forever: the click handler crashed synchronously, so
+// nothing ever reached Supabase and the loading state never cleared.
+export function enrichNewListing(l: ListingData): ListingData {
+  return {
+    ...l,
+    isNew: true,
+    isFeatured: false,
+    isPromoted: false,
+    views: 0,
+    likes: 0,
+    score: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+}
