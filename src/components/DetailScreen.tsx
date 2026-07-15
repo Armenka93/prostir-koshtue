@@ -4,6 +4,7 @@ import type { ListingData, User } from '@/types'
 import { TYPE_COLORS, maskPhone, formatPhone, telHref } from '@/types'
 import { getOrCreateChat } from '@/lib/chats-db'
 import { dbIncrementViews, dbGetListingCounters } from '@/lib/db'
+import { isMockListingId } from '@/lib/mockData'
 
 interface Props {
   listing: ListingData
@@ -60,7 +61,12 @@ export default function DetailScreen({
   const maskedPhone = data.ownerPhone ? maskPhone(data.ownerPhone) : '*** *** ****'
   const displayPhone = data.ownerPhone ? formatPhone(data.ownerPhone) : ''
   const phoneHref = data.ownerPhone ? telHref(data.ownerPhone) : ''
-  const isMockListing = data.id < 100 // mock data has small ids, no real DB row to update
+  // Uses the shared MOCK_IDS check (see src/lib/mockData.ts) rather than a
+  // numeric id threshold. A threshold like `id < 100` wrongly classified
+  // real early DB rows (ids 13, 15, ...) as mock, since Postgres's
+  // listings_id_seq also starts at 1 — this silently skipped every real
+  // view/like write until the sequence happened to pass 100.
+  const isMockListing = isMockListingId(data.id)
 
   // ── Count a view once per screen visit, then re-sync with the DB ──
   // This is the ONLY place that writes/reads from Supabase for this
