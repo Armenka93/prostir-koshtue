@@ -319,6 +319,58 @@ export async function dbAdjustLikes(id: number, delta: 1 | -1): Promise<void> {
   }
 }
 
+// ── FAVORITES (per-user, persisted in Supabase) ───────────────
+// The `favorites` table stores one row per (user_id, listing_id). The
+// listings.likes counter is kept in sync automatically by a DB trigger
+// (favorites_sync_likes), so the frontend must NOT also call
+// adjust_listing_likes — that would double-count.
+
+export async function dbGetUserFavorites(userId: string): Promise<number[]> {
+  if (!isSupabaseReady() || !userId) return []
+  try {
+    const { data, error } = await supabase
+      .from('favorites')
+      .select('listing_id')
+      .eq('user_id', userId)
+    if (error) { console.error('[dbGetUserFavorites]', error.message); return [] }
+    return (data || []).map(r => Number(r.listing_id))
+  } catch (e: any) {
+    console.error('[dbGetUserFavorites] CATCH:', e?.message)
+    return []
+  }
+}
+
+export async function dbAddFavorite(userId: string, listingId: number): Promise<boolean> {
+  if (!isSupabaseReady() || !userId) return false
+  try {
+    // upsert so a double-tap can't error on the unique (user_id, listing_id) key
+    const { error } = await supabase
+      .from('favorites')
+      .upsert({ user_id: userId, listing_id: listingId }, { onConflict: 'user_id,listing_id', ignoreDuplicates: true })
+    if (error) { console.error('[dbAddFavorite]', error.message); return false }
+    return true
+  } catch (e: any) {
+    console.error('[dbAddFavorite] CATCH:', e?.message)
+    return false
+  }
+}
+
+export async function dbRemoveFavorite(userId: string, listingId: number): Promise<boolean> {
+  if (!isSupabaseReady() || !userId) return false
+  try {
+    const { error } = await supabase
+      .from('favorites')
+      .delete()
+      .eq('user_id', userId)
+      .eq('listing_id', listingId)
+    if (error) { console.error('[dbRemoveFavorite]', error.message); return false }
+    return true
+  } catch (e: any) {
+    console.error('[dbRemoveFavorite] CATCH:', e?.message)
+    return false
+  }
+}
+
 export async function dbGetListingCounters(id: number): Promise<{ views: number; likes: number } | null> {
   if (!isSupabaseReady()) return null
   try {
