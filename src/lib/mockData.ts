@@ -257,6 +257,17 @@ export const MOCK_LISTINGS: ListingData[] = [
   },
 ]
 
+// Single source of truth for "is this a mock/demo listing (no real row in
+// Supabase to write views/likes to)". Do NOT use numeric id thresholds like
+// `id < 100` elsewhere — mock ids are 1-8 today, but Postgres's own
+// `listings_id_seq` also starts at 1, so early real DB rows (e.g. id 13, 15)
+// have small ids too and would be wrongly classified as mock by a threshold
+// check. Always check against this set instead.
+export const MOCK_IDS = new Set(MOCK_LISTINGS.map(l => l.id))
+export function isMockListingId(id: number): boolean {
+  return MOCK_IDS.has(id)
+}
+
 export function getMockFeed(): FeedData {
   return {
     populyarni: [...MOCK_LISTINGS].sort((a, b) => b.views - a.views).slice(0, 5),
