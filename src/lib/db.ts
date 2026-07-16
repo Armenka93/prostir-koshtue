@@ -39,6 +39,35 @@ export async function dbGetListings(): Promise<ListingData[]> {
   }
 }
 
+// ── STORAGE (listing photos) ───────────────────────────────────
+// Photos are uploaded as real files to a Storage bucket and only the
+// resulting short public URL is stored in listings.images. Previously the
+// app stored full base64-encoded photos directly in that column, which:
+//  - made every publish take ~20s (multi-MB text payload per photo)
+//  - made every feed load slow (every listing row carries its full photos)
+//  - could outright fail ("Помилка збереження") once the base64 payload
+//    crossed the API gateway's request-size limit
+// This bucket must exist and be public — see MIGRATION NOTE at bottom of
+// this file for the one-time setup SQL if it hasn't been created yet.
+const LISTING_IMAGES_BUCKET = 'listing-images'
+
+export async function dbUploadListingImage(file: File, userId: string): Promise<string | null> {
+  if (!isSupabaseReady()) return null
+  try {
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+    const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+    const { error } = await supabase.storage
+      .from(LISTING_IMAGES_BUCKET)
+      .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || 'image/jpeg' })
+    if (error) { console.error('[dbUploadListingImage]', error.message); return null }
+    const { data } = supabase.storage.from(LISTING_IMAGES_BUCKET).getPublicUrl(path)
+    return data.publicUrl
+  } catch (e: any) {
+    console.error('[dbUploadListingImage] CATCH:', e?.message)
+    return null
+  }
+}
+
 export async function dbPublishListing(listing: Partial<ListingData>): Promise<ListingData | null> {
   if (!isSupabaseReady()) {
     console.error('[dbPublishListing] Supabase not ready')
