@@ -6,6 +6,8 @@ import {
   deleteChat, subscribeToMessages, subscribeToUserChats,
   type ChatRecord, type MessageRecord,
 } from '@/lib/chats-db'
+import { usePTR } from '@/hooks/usePTR'
+import PTRIndicator from './PTRIndicator'
 
 interface Props {
   user: User | null
@@ -13,6 +15,12 @@ interface Props {
   onLogin: () => void
   onRefresh?: () => Promise<void>
   initialChatId?: string
+  // Called right after initialChatId has been used to auto-open a chat.
+  // The parent (page.tsx) uses this to clear its initialChatId state back
+  // to undefined — otherwise it stays set for the rest of the session and
+  // silently re-opens that same conversation every time this screen remounts
+  // (e.g. leaving the "Чати" tab and coming back to it).
+  onInitialChatConsumed?: () => void
 }
 
 function timeStr(iso: string): string {
@@ -455,7 +463,7 @@ export function useChatSoundListener(userId: string | undefined) {
 }
 
 // ── Main ChatsScreen ──────────────────────────────────────────
-export default function ChatsScreen({ user, isGuest, onLogin, initialChatId }: Props) {
+export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onInitialChatConsumed }: Props) {
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [activeChat, setActiveChat] = useState<ChatRecord | null>(null)
@@ -470,8 +478,11 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId }: P
     if (initialChatId && !openedRef.current) {
       const target = data.find(c => c.id === initialChatId)
       if (target) { setActiveChat(target); openedRef.current = true }
+      // Tell the parent this id has been used, so it clears its state and
+      // doesn't keep forcing this same chat open every time we remount.
+      onInitialChatConsumed?.()
     }
-  }, [user, initialChatId])
+  }, [user, initialChatId, onInitialChatConsumed])
 
   useEffect(() => {
     if (!user) { setLoading(false); return }
@@ -479,6 +490,11 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId }: P
     const sub = subscribeToUserChats(user.id, loadChats)
     return () => { sub.unsubscribe() }
   }, [user, loadChats])
+
+  // Pull-to-refresh reloads the chat list itself (not listings — the
+  // `onRefresh` prop some other screens use is for the listings feed and
+  // would be the wrong data source here).
+  const ptr = usePTR(loadChats)
 
   const totalUnread = chats.reduce((s, c) =>
     s + (c.buyer_id === user?.id ? (c.unread_buyer || 0) : (c.unread_seller || 0)), 0)
@@ -518,6 +534,7 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId }: P
 
   return (
     <div style={{ paddingBottom: 90 }}>
+      <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
       <div style={{ padding: '48px 20px 14px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018', borderBottom: '1px solid #1E2334', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Повідомлення</div>
         {totalUnread > 0 && <span style={{ background: '#EF4444', color: '#fff', fontSize: 12, fontWeight: 700, borderRadius: 20, padding: '3px 12px' }}>{totalUnread} нових</span>}
