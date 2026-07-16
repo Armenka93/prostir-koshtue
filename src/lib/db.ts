@@ -100,6 +100,48 @@ export async function dbPublishListing(listing: Partial<ListingData>): Promise<L
   }
 }
 
+// Only the fields a user can actually change via the edit form. Deliberately
+// excludes views/likes/score/isActive/isPromoted/isFeatured/userId/createdAt
+// — an edit must never reset those, unlike a fresh publish.
+function listingToUpdateRow(l: Partial<ListingData>) {
+  return {
+    title: (l.title || '').trim(),
+    type: l.type || 'Офіс',
+    price: Number(l.price) || 0,
+    area: Number(l.area) || 0,
+    floor: l.floor ? Number(l.floor) : null,
+    total_floors: l.totalFloors ? Number(l.totalFloors) : null,
+    district: l.district || '',
+    address: (l.address || '').trim(),
+    city: l.city || 'Одеса',
+    condition: l.condition || null,
+    parking: Boolean(l.parking),
+    separate_entrance: Boolean(l.separateEntrance),
+    description: l.description || null,
+    images: Array.isArray(l.images) ? l.images.filter(Boolean) : [],
+    features: Array.isArray(l.features) ? l.features.filter(Boolean) : [],
+    updated_at: new Date().toISOString(),
+  }
+}
+
+export async function dbUpdateListing(id: number, listing: Partial<ListingData>): Promise<ListingData | null> {
+  if (!isSupabaseReady()) { console.error('[dbUpdateListing] Supabase not ready'); return null }
+  const row = listingToUpdateRow(listing)
+  try {
+    const { data, error } = await supabase
+      .from('listings')
+      .update(row)
+      .eq('id', id)
+      .select()
+      .single()
+    if (error) { console.error('[dbUpdateListing] ERROR:', error.message); return null }
+    return rowToListing(data)
+  } catch (e: any) {
+    console.error('[dbUpdateListing] CATCH:', e?.message)
+    return null
+  }
+}
+
 export async function dbDeleteListing(id: number): Promise<boolean> {
   if (!isSupabaseReady()) return false
   try {
