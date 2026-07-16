@@ -5,7 +5,7 @@ import { MOCK_LISTINGS, MOCK_IDS, isMockListingId } from '@/lib/mockData'
 import { loadFavs, saveFavs } from '@/lib/storage'
 import { loadSession, saveSession, clearSession } from '@/lib/auth'
 import {
-  dbGetListings, dbPublishListing, dbDeleteListing,
+  dbGetListings, dbPublishListing, dbUpdateListing, dbDeleteListing,
   subscribeToListings, isSupabaseReady,
   dbGetUserFavorites, dbAddFavorite, dbRemoveFavorite,
 } from '@/lib/db'
@@ -57,6 +57,7 @@ function AppInner() {
   const [activeScreen, setActiveScreen] = useState<Screen>('home')
   const [selectedListing, setSelectedListing] = useState<ListingData | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [editingListing, setEditingListing] = useState<ListingData | null>(null)
   const [showFeedback, setShowFeedback] = useState(false)
   const [showAll, setShowAll] = useState<{ title: string; items: ListingData[] } | null>(null)
   const [dbListings, setDbListings] = useState<ListingData[]>([])
@@ -289,6 +290,20 @@ function AppInner() {
     scrollTop()
   }
 
+  const handleUpdateListing = async (id: number, data: Partial<ListingData>) => {
+    const updated = await dbUpdateListing(id, data)
+    if (updated) {
+      setDbListings(prev => prev.map(l => l.id === id ? updated : l))
+      setRefreshTick(t => t + 1)
+      showToast('✅ Зміни збережено!')
+    } else {
+      showToast('⚠️ Помилка збереження. Перевірте підключення.')
+    }
+    setEditingListing(null)
+    setActiveScreen('requests')
+    scrollTop()
+  }
+
   const handleDeleteListing = async (id: number) => {
     setDbListings(prev => prev.filter(l => l.id !== id))
     setRefreshTick(t => t + 1)
@@ -306,7 +321,7 @@ function AppInner() {
   if (phase === 'splash') return <><SplashScreen onEnter={() => setPhase('auth')} onGuest={handleGuest} /><Toast msg={toastMsg} /></>
   if (phase === 'auth') return <><AuthScreen onDone={handleLogin} onGuest={handleGuest} /><Toast msg={toastMsg} /></>
   if (showFeedback) return <><FeedbackScreen onBack={() => { setShowFeedback(false); scrollTop() }} /><Toast msg={toastMsg} /></>
-  if (showAdd) return <><AddListingScreen user={user} onBack={() => { setShowAdd(false); scrollTop() }} onCreated={handleAddListing} onGoProfile={() => { setShowAdd(false); setActiveScreen('profile'); scrollTop() }} /><Toast msg={toastMsg} /></>
+  if (showAdd || editingListing) return <><AddListingScreen user={user} onBack={() => { setShowAdd(false); setEditingListing(null); scrollTop() }} onCreated={handleAddListing} onUpdated={handleUpdateListing} editListing={editingListing || undefined} onGoProfile={() => { setShowAdd(false); setEditingListing(null); setActiveScreen('profile'); scrollTop() }} /><Toast msg={toastMsg} /></>
   if (selectedListing) return (
     <>
       <DetailScreen
@@ -325,6 +340,7 @@ function AppInner() {
           setInitialChatId(chatId)
           goScreen('messages')
         }}
+        onEdit={(l) => { setSelectedListing(null); setEditingListing(l); scrollTop() }}
       />
       <Toast msg={toastMsg} />
     </>
@@ -364,7 +380,7 @@ function AppInner() {
           />
         )}
         {activeScreen === 'favorites' && <FavoritesScreen favorites={favs} allListings={allListings} onListing={openListing} onFavorite={toggleFav} onRefresh={handleRefresh} />}
-        {activeScreen === 'requests' && <RequestsScreen user={user} isGuest={isGuest && !user} listings={allListings} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onListing={openListing} onDelete={handleDeleteListing} onRefresh={handleRefresh} onBack={() => { setActiveScreen('profile'); scrollTop() }} />}
+        {activeScreen === 'requests' && <RequestsScreen user={user} isGuest={isGuest && !user} listings={allListings} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onListing={openListing} onDelete={handleDeleteListing} onEdit={(l) => { setEditingListing(l); scrollTop() }} onRefresh={handleRefresh} onBack={() => { setActiveScreen('profile'); scrollTop() }} />}
         {activeScreen === 'profile' && <ProfileScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onFeedback={() => { setShowFeedback(true); scrollTop() }} favCount={favs.length} onLogout={handleLogout} showToast={showToast} listings={allListings} onListing={openListing} onDeleteListing={handleDeleteListing} onRefresh={handleRefresh} onMyListings={() => { setActiveScreen('requests'); scrollTop() }} />}
       </div>
       <BottomNav active={activeScreen} onChange={goScreen} favCount={favs.length} unreadMessages={unreadMsgs} />
