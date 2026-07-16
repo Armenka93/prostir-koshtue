@@ -173,6 +173,29 @@ function ChatRow({ chat, userId, onOpen, onDelete }: {
 }
 
 // ── Chat Window ───────────────────────────────────────────────
+// Waits for the DELETE to actually finish in Supabase before telling the
+// parent to reload the chat list. Previously deleteChat() was fired without
+// awaiting it, so loadChats() could run its SELECT before the delete had
+// committed — the just-deleted chat would still show up, get auto-reopened
+// (see the initialChatId logic above), and the user had to press delete a
+// second time. That race is why it "worked, but sometimes needed 2 tries".
+function DeleteChatButton({ chatId, onDeleted }: { chatId: string; onDeleted: () => void }) {
+  const [deleting, setDeleting] = useState(false)
+  return (
+    <button
+      disabled={deleting}
+      onClick={async () => {
+        if (deleting || !confirm('Видалити чат?')) return
+        setDeleting(true)
+        await deleteChat(chatId)
+        onDeleted()
+      }}
+      style={{ background: 'none', border: 'none', color: '#6B7280', cursor: deleting ? 'wait' : 'pointer', padding: '8px', display: 'flex', alignItems: 'center', flexShrink: 0, opacity: deleting ? 0.5 : 1 }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+    </button>
+  )
+}
+
 function ChatWindow({ chat, user, onBack, onDeleted }: {
   chat: ChatRecord; user: User; onBack: () => void; onDeleted: () => void
 }) {
@@ -311,10 +334,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
           <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{otherName}</div>
           <div style={{ fontSize: 11, color: '#FF6B1A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📍 {chat.listing_title}</div>
         </div>
-        <button onClick={() => { if (confirm('Видалити чат?')) { deleteChat(chat.id); onDeleted() } }}
-          style={{ background: 'none', border: 'none', color: '#6B7280', cursor: 'pointer', padding: '8px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-        </button>
+        <DeleteChatButton chatId={chat.id} onDeleted={onDeleted} />
       </div>
 
       {/* Messages — flex:1 scrollable */}
@@ -482,8 +502,16 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId }: P
     return (
       <ChatWindow
         chat={activeChat} user={user}
-        onBack={() => { setActiveChat(null); openedRef.current = false; loadChats() }}
-        onDeleted={() => { setActiveChat(null); openedRef.current = false; loadChats() }}
+        // Do NOT reset openedRef here. openedRef exists to make sure a chat
+        // opened via `initialChatId` (a deep link from "message seller" on
+        // DetailScreen) auto-opens only once per visit to this screen. If we
+        // reset it back to false on close, the very next loadChats() call
+        // below re-runs that auto-open check while `initialChatId` is still
+        // the same prop value, finds the same chat again, and immediately
+        // re-opens it — which is exactly why "back" looked broken: the chat
+        // closed for an instant and then reopened itself.
+        onBack={() => { setActiveChat(null); loadChats() }}
+        onDeleted={() => { setActiveChat(null); loadChats() }}
       />
     )
   }
