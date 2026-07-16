@@ -22,6 +22,7 @@ interface Props {
   favCount: number; onLogout: () => void; showToast: (m: string) => void
   listings?: ListingData[]; onListing?: (l: ListingData) => void
   onDeleteListing?: (id: number) => void; onRefresh?: () => Promise<void>
+  onMyListings?: () => void
 }
 
 const IC = {
@@ -207,7 +208,7 @@ function AdminDashboard({ propListings, onDeleteListing }: { propListings: Listi
 }
 
 // ── MAIN ─────────────────────────────────────────────────────
-export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings=[], onListing, onDeleteListing, onRefresh }: Props) {
+export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings=[], onListing, onDeleteListing, onRefresh, onMyListings }: Props) {
   const [notif, setNotif] = useState(true)
   const [showEdit, setShowEdit] = useState(false)
   const [currentUser, setCurrentUser] = useState(user)
@@ -297,9 +298,16 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
         </div>
 
         {/* MY LISTINGS */}
-        {myListings.length > 0 && (
-          <div style={{ marginBottom:20 }}>
-            <div style={{ fontSize:11, color:'#6B7280', fontWeight:700, letterSpacing:'1px', textTransform:'uppercase' as const, marginBottom:8 }}>Мої оголошення</div>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+            <div style={{ fontSize:11, color:'#6B7280', fontWeight:700, letterSpacing:'1px', textTransform:'uppercase' as const }}>Мої оголошення</div>
+            {onMyListings && (
+              <button onClick={onMyListings} style={{ background:'none', border:'none', color:'#FF6B1A', fontSize:12, fontWeight:600, cursor:'pointer', padding:0 }}>
+                Усі →
+              </button>
+            )}
+          </div>
+          {myListings.length > 0 ? (
             <Card>
               {myListings.slice(0,3).map((l,i) => (
                 <div key={l.id} onClick={() => onListing?.(l)} style={{ display:'flex', gap:12, padding:'12px 16px', borderBottom:i<Math.min(myListings.length,3)-1?'1px solid #2A3045':'none', cursor:'pointer' }}>
@@ -316,8 +324,12 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
                 </div>
               ))}
             </Card>
-          </div>
-        )}
+          ) : (
+            <Card>
+              <div style={{ padding:'16px', textAlign:'center' as const, color:'#6B7280', fontSize:13 }}>Ще немає оголошень</div>
+            </Card>
+          )}
+        </div>
 
         {/* SETTINGS */}
         <div style={{ marginBottom:20 }}>

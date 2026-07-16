@@ -46,7 +46,6 @@ const items: { id: Screen; label: string }[] = [
   { id: 'home', label: 'Головна' },
   { id: 'messages', label: 'Чати' },
   { id: 'favorites', label: 'Обране' },
-  { id: 'requests', label: 'Мої' },
   { id: 'profile', label: 'Профіль' },
 ]
 

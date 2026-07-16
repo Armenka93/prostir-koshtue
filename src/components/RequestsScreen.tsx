@@ -12,9 +12,10 @@ interface Props {
   onListing: (l: ListingData) => void
   onDelete: (id: number) => void
   onRefresh?: () => Promise<void>
+  onBack?: () => void
 }
 
-export default function RequestsScreen({ user, isGuest, listings, onLogin, onAddListing, onListing, onDelete, onRefresh }: Props) {
+export default function RequestsScreen({ user, isGuest, listings, onLogin, onAddListing, onListing, onDelete, onRefresh, onBack }: Props) {
   const ptr = usePTR(onRefresh)
   const mine = listings.filter(l => {
     if (!user) return false
@@ -26,7 +27,12 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
     return (
       <div style={{ paddingBottom: 90 }}>
         <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
-        <div style={{ padding: "48px 20px 16px", paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018' }}>
+        <div style={{ padding: "48px 20px 16px", paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018', display: 'flex', alignItems: 'center', gap: 10 }}>
+          {onBack && (
+            <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '4px 4px 4px 0', display: 'flex', alignItems: 'center' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+          )}
           <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Мої оголошення</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 24px', textAlign: 'center' }}>
@@ -46,9 +52,16 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
       <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
 
       <div style={{ padding: "48px 20px 16px", paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          {onBack && (
+            <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '4px 4px 4px 0', display: 'flex', alignItems: 'center' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+          )}
+          <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Мої оголошення</div>
+        </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>Мої оголошення</div>
             <div style={{ fontSize: 13, color: '#A0A8BC', marginTop: 4 }}>
               {mine.length > 0 ? `${mine.length} об'єктів` : 'Додайте своє перше приміщення'}
             </div>
