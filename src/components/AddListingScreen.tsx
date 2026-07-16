@@ -10,6 +10,10 @@ interface Props {
   onBack: () => void
   onCreated: (data: Partial<ListingData>) => void
   onGoProfile?: () => void
+  // When set, the form opens pre-filled with this listing's data and
+  // submitting calls onUpdated (an UPDATE) instead of onCreated (an INSERT).
+  editListing?: ListingData
+  onUpdated?: (id: number, data: Partial<ListingData>) => void
 }
 
 const FALLBACK_IMGS = [
@@ -19,22 +23,25 @@ const FALLBACK_IMGS = [
   'https://images.unsplash.com/photo-1486325212027-8081e485255e?w=800&q=80',
 ]
 
-export default function AddListingScreen({ user, onBack, onCreated, onGoProfile }: Props) {
-  const [title, setTitle] = useState('')
-  const [type, setType] = useState('Офіс')
-  const [price, setPrice] = useState('')
-  const [area, setArea] = useState('')
-  const [floor, setFloor] = useState('')
-  const [totalFloors, setTotalFloors] = useState('')
-  const [district, setDistrict] = useState('Приморський')
-  const [address, setAddress] = useState('')
-  const [condition, setCondition] = useState('Євроремонт')
-  const [parking, setParking] = useState(false)
-  const [entrance, setEntrance] = useState(false)
-  const [description, setDescription] = useState('')
-  const [features, setFeatures] = useState('')
+export default function AddListingScreen({ user, onBack, onCreated, onGoProfile, editListing, onUpdated }: Props) {
+  const isEdit = !!editListing
+  const [title, setTitle] = useState(editListing?.title || '')
+  const [type, setType] = useState(editListing?.type || 'Офіс')
+  const [price, setPrice] = useState(editListing ? String(editListing.price) : '')
+  const [area, setArea] = useState(editListing ? String(editListing.area) : '')
+  const [floor, setFloor] = useState(editListing?.floor != null ? String(editListing.floor) : '')
+  const [totalFloors, setTotalFloors] = useState(editListing?.totalFloors != null ? String(editListing.totalFloors) : '')
+  const [district, setDistrict] = useState(editListing?.district || 'Приморський')
+  const [address, setAddress] = useState(editListing?.address || '')
+  const [condition, setCondition] = useState(editListing?.condition || 'Євроремонт')
+  const [parking, setParking] = useState(editListing?.parking || false)
+  const [entrance, setEntrance] = useState(editListing?.separateEntrance || false)
+  const [description, setDescription] = useState(editListing?.description || '')
+  const [features, setFeatures] = useState(editListing?.features?.join(', ') || '')
   interface PhotoItem { previewUrl: string; uploadedUrl: string | null; uploading: boolean; failed: boolean }
-  const [photos, setPhotos] = useState<PhotoItem[]>([])
+  const [photos, setPhotos] = useState<PhotoItem[]>(() =>
+    (editListing?.images || []).map(url => ({ previewUrl: url, uploadedUrl: url, uploading: false, failed: false }))
+  )
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -86,11 +93,9 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile 
     setLoading(true)
 
     const uploadedPhotoUrls = photos.map(p => p.uploadedUrl).filter((u): u is string => !!u)
+    const images = uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : [FALLBACK_IMGS[Math.floor(Math.random() * FALLBACK_IMGS.length)]]
 
-    // Build listing data
-    const listingData: Partial<ListingData> = enrichNewListing({
-      id: Date.now(),
-      userId: user?.id || 'me',
+    const commonFields = {
       title: title.trim(),
       type,
       price: parseInt(price),
@@ -104,8 +109,23 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile 
       parking,
       separateEntrance: entrance,
       description: description.trim() || null,
-      images: uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : [FALLBACK_IMGS[Math.floor(Math.random() * FALLBACK_IMGS.length)]],
+      images,
       features: features ? features.split(',').map(f => f.trim()).filter(Boolean) : [],
+    }
+
+    if (isEdit && editListing) {
+      // Editing: keep everything about the listing's identity/stats/status
+      // untouched (id, userId, createdAt, views, likes, isActive, ...) —
+      // only the fields the user could actually change in this form.
+      onUpdated?.(editListing.id, commonFields)
+      // Note: setLoading(false) not needed — component unmounts after onUpdated
+      return
+    }
+
+    const listingData: Partial<ListingData> = enrichNewListing({
+      id: Date.now(),
+      userId: user?.id || 'me',
+      ...commonFields,
       isActive: true,
       isNew: true,
       isPromoted: false,
@@ -151,7 +171,7 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile 
         borderBottom: '1px solid #1E2334',
       }}>
         <button onClick={onBack} style={{ background: 'rgba(255,255,255,.08)', border: 'none', borderRadius: 10, width: 36, height: 36, color: '#fff', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>←</button>
-        <div style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>Додати об'єкт</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{isEdit ? 'Редагувати об\'єкт' : 'Додати об\'єкт'}</div>
       </div>
 
       {/* Scrollable form */}
@@ -357,10 +377,10 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile 
           }}
         >
           {loading
-            ? '⏳ Публікація...'
+            ? (isEdit ? '⏳ Збереження...' : '⏳ Публікація...')
             : photos.some(p => p.uploading)
               ? '⏳ Завантаження фото...'
-              : '✅ Опублікувати об\'єкт'}
+              : (isEdit ? '💾 Зберегти зміни' : '✅ Опублікувати об\'єкт')}
         </button>
       </div>
     </div>

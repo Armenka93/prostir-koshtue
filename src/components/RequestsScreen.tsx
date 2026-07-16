@@ -11,11 +11,12 @@ interface Props {
   onAddListing: () => void
   onListing: (l: ListingData) => void
   onDelete: (id: number) => void
+  onEdit: (l: ListingData) => void
   onRefresh?: () => Promise<void>
   onBack?: () => void
 }
 
-export default function RequestsScreen({ user, isGuest, listings, onLogin, onAddListing, onListing, onDelete, onRefresh, onBack }: Props) {
+export default function RequestsScreen({ user, isGuest, listings, onLogin, onAddListing, onListing, onDelete, onEdit, onRefresh, onBack }: Props) {
   const ptr = usePTR(onRefresh)
   const mine = listings.filter(l => {
     if (!user) return false
@@ -101,6 +102,9 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
                 <div style={{ display: 'flex', borderTop: '1px solid #2A3045' }}>
                   <button onClick={() => onListing(listing)} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', color: '#2A9FD6', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                     👁️ Переглянути
+                  </button>
+                  <button onClick={() => onEdit(listing)} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderLeft: '1px solid #2A3045', color: '#FFB020', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    ✏️ Редагувати
                   </button>
                   <button onClick={() => { if (confirm('Видалити це оголошення?')) onDelete(listing.id) }} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderLeft: '1px solid #2A3045', color: '#EF4444', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                     🗑️ Видалити

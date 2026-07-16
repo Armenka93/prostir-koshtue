@@ -18,6 +18,7 @@ interface Props {
   user?: User | null
   showToast: (m: string) => void
   onOpenChat?: (chatId: string) => void
+  onEdit?: (l: ListingData) => void
 }
 
 function FavBtn({ id, isFav, onFav, style }: {
@@ -43,7 +44,7 @@ function FavBtn({ id, isFav, onFav, style }: {
 
 export default function DetailScreen({
   listing, onBack, onFavorite, isFavorite, onSimilar,
-  allListings, isGuest, onLogin, user, showToast, onOpenChat
+  allListings, isGuest, onLogin, user, showToast, onOpenChat, onEdit
 }: Props) {
   const [showPhone, setShowPhone] = useState(false)
   const [startingChat, setStartingChat] = useState(false)
@@ -342,9 +343,15 @@ export default function DetailScreen({
 
           {/* Chat button — creates real Supabase chat */}
           {isOwn ? (
-            <div style={{ padding: '15px 14px', background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 14, fontSize: 11, color: '#6B7280', textAlign: 'center', lineHeight: 1.2 }}>
-              Ваше<br/>оголошення
-            </div>
+            onEdit ? (
+              <button onClick={() => onEdit(data)} style={{ padding: '15px 14px', background: '#FFB02022', border: '1px solid #FFB02044', borderRadius: 14, fontSize: 13, color: '#FFB020', fontWeight: 700, textAlign: 'center', lineHeight: 1.2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                ✏️ Редагувати
+              </button>
+            ) : (
+              <div style={{ padding: '15px 14px', background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 14, fontSize: 11, color: '#6B7280', textAlign: 'center', lineHeight: 1.2 }}>
+                Ваше<br/>оголошення
+              </div>
+            )
           ) : (
             <button
               onClick={handleWriteToSeller}
