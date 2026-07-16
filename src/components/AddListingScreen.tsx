@@ -3,6 +3,7 @@ import { useState, useRef } from 'react'
 import type { ListingData, User } from '@/types'
 import { PROPERTY_TYPES, CONDITIONS, DISTRICTS } from '@/types'
 import { enrichNewListing } from '@/lib/listing-logic'
+import { dbUploadListingImage } from '@/lib/db'
 
 interface Props {
   user: User | null
@@ -32,7 +33,8 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile 
   const [entrance, setEntrance] = useState(false)
   const [description, setDescription] = useState('')
   const [features, setFeatures] = useState('')
-  const [photos, setPhotos] = useState<string[]>([])
+  interface PhotoItem { previewUrl: string; uploadedUrl: string | null; uploading: boolean; failed: boolean }
+  const [photos, setPhotos] = useState<PhotoItem[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -51,12 +53,23 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile 
   const handleFiles = (files: FileList | null) => {
     if (!files) return
     const remaining = 10 - photos.length
+    const MAX_SIZE = 10 * 1024 * 1024 // 10 MB — matches the limit shown in the UI copy below
     Array.from(files).slice(0, remaining).forEach(file => {
-      const reader = new FileReader()
-      reader.onload = e => {
-        if (e.target?.result) setPhotos(p => [...p, e.target!.result as string])
+      if (file.size > MAX_SIZE) {
+        setError(`Файл "${file.name}" більший за 10 MB`)
+        return
       }
-      reader.readAsDataURL(file)
+      // Instant local preview (no network wait) using an object URL, while
+      // the real upload to Storage happens in the background.
+      const previewUrl = URL.createObjectURL(file)
+      const entry: PhotoItem = { previewUrl, uploadedUrl: null, uploading: true, failed: false }
+      setPhotos(p => [...p, entry])
+
+      dbUploadListingImage(file, user?.id || 'anonymous').then(url => {
+        setPhotos(p => p.map(ph =>
+          ph.previewUrl === previewUrl ? { ...ph, uploadedUrl: url, uploading: false, failed: !url } : ph
+        ))
+      })
     })
   }
 
@@ -66,9 +79,13 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile 
     if (!price || isNaN(parseInt(price)) || parseInt(price) <= 0) { setError('Введіть коректну ціну'); return }
     if (!area || isNaN(parseInt(area)) || parseInt(area) <= 0) { setError('Введіть коректну площу'); return }
     if (!address.trim()) { setError('Введіть адресу об\'єкту'); return }
+    if (photos.some(p => p.uploading)) { setError('Зачекайте, фото ще завантажуються'); return }
+    if (photos.some(p => p.failed)) { setError('Деякі фото не вдалося завантажити — видаліть їх або спробуйте ще раз'); return }
 
     setError('')
     setLoading(true)
+
+    const uploadedPhotoUrls = photos.map(p => p.uploadedUrl).filter((u): u is string => !!u)
 
     // Build listing data
     const listingData: Partial<ListingData> = enrichNewListing({
@@ -87,7 +104,7 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile 
       parking,
       separateEntrance: entrance,
       description: description.trim() || null,
-      images: photos.length > 0 ? photos : [FALLBACK_IMGS[Math.floor(Math.random() * FALLBACK_IMGS.length)]],
+      images: uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : [FALLBACK_IMGS[Math.floor(Math.random() * FALLBACK_IMGS.length)]],
       features: features ? features.split(',').map(f => f.trim()).filter(Boolean) : [],
       isActive: true,
       isNew: true,
@@ -101,7 +118,9 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile 
       ownerPhone: user?.phone || null,
     } as ListingData)
 
-    // Call parent immediately — no async needed
+    // Call parent immediately — no async needed (photos are already
+    // uploaded to Storage by this point; the listing row only carries
+    // their URLs, so this insert is small and fast).
     onCreated(listingData)
     // Note: setLoading(false) not needed — component unmounts after onCreated
   }
@@ -258,7 +277,23 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile 
               <div style={{ display: 'flex', gap: 8, overflowX: 'auto', marginBottom: 8, paddingBottom: 4 }}>
                 {photos.map((p, i) => (
                   <div key={i} style={{ position: 'relative', flexShrink: 0 }}>
-                    <img src={p} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 10 }} />
+                    <img src={p.previewUrl} style={{
+                      width: 72, height: 72, objectFit: 'cover', borderRadius: 10,
+                      opacity: p.uploading ? 0.5 : 1,
+                      border: p.failed ? '2px solid #EF4444' : 'none',
+                    }} />
+                    {p.uploading && (
+                      <div style={{
+                        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 20,
+                      }}>⏳</div>
+                    )}
+                    {p.failed && (
+                      <div style={{
+                        position: 'absolute', bottom: 2, left: 2, right: 2, fontSize: 9, color: '#fff',
+                        background: '#EF4444CC', borderRadius: 4, textAlign: 'center', padding: '1px 0',
+                      }}>Помилка</div>
+                    )}
                     <button onClick={() => setPhotos(ph => ph.filter((_, j) => j !== i))} style={{
                       position: 'absolute', top: -6, right: -6,
                       background: '#EF4444', border: 'none', borderRadius: '50%',
@@ -304,24 +339,28 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile 
       }}>
         <button
           onClick={handleSubmit}
-          disabled={loading}
+          disabled={loading || photos.some(p => p.uploading)}
           style={{
             width: '100%',
             padding: '16px',
-            background: loading ? '#4B5563' : 'linear-gradient(135deg,#FF6B1A,#FF8C3A)',
+            background: (loading || photos.some(p => p.uploading)) ? '#4B5563' : 'linear-gradient(135deg,#FF6B1A,#FF8C3A)',
             border: 'none',
             borderRadius: 14,
             color: '#fff',
             fontSize: 16,
             fontWeight: 700,
-            cursor: loading ? 'wait' : 'pointer',
+            cursor: (loading || photos.some(p => p.uploading)) ? 'wait' : 'pointer',
             fontFamily: 'Inter, sans-serif',
-            boxShadow: loading ? 'none' : '0 4px 20px rgba(255,107,26,.35)',
+            boxShadow: (loading || photos.some(p => p.uploading)) ? 'none' : '0 4px 20px rgba(255,107,26,.35)',
             minHeight: 52,
             touchAction: 'manipulation',
           }}
         >
-          {loading ? '⏳ Публікація...' : '✅ Опублікувати об\'єкт'}
+          {loading
+            ? '⏳ Публікація...'
+            : photos.some(p => p.uploading)
+              ? '⏳ Завантаження фото...'
+              : '✅ Опублікувати об\'єкт'}
         </button>
       </div>
     </div>
