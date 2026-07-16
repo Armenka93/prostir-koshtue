@@ -54,6 +54,54 @@ function Card({ children }: { children: React.ReactNode }) {
   return <div style={{ background:'#1A1F2E', borderRadius:18, overflow:'hidden', border:'1px solid #2A3045' }}>{children}</div>
 }
 
+function SheetModal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:600, display:'flex', alignItems:'flex-end', backdropFilter:'blur(4px)' }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ width:'100%', maxWidth:430, margin:'0 auto', background:'#1A1F2E', borderRadius:'24px 24px 0 0', padding:'20px', paddingBottom:'max(24px,env(safe-area-inset-bottom,24px))', border:'1px solid #2A3045', maxHeight:'80vh', overflowY:'auto' as const }}>
+        <div style={{ width:36, height:4, background:'#2A3045', borderRadius:2, margin:'0 auto 20px' }} />
+        <div style={{ fontSize:18, fontWeight:700, color:'#fff', marginBottom:16 }}>{title}</div>
+        {children}
+        <button onClick={onClose} style={{ width:'100%', padding:'13px', background:'transparent', border:'1px solid #2A3045', borderRadius:14, color:'#A0A8BC', fontSize:14, cursor:'pointer', marginTop:16 }}>Закрити</button>
+      </div>
+    </div>
+  )
+}
+
+function PrivacyModal({ onClose, onFeedback }: { onClose: () => void; onFeedback: () => void }) {
+  const p: React.CSSProperties = { fontSize:14, color:'#A0A8BC', lineHeight:1.6, marginBottom:14 }
+  const h: React.CSSProperties = { fontSize:13, fontWeight:700, color:'#fff', marginBottom:6, marginTop:14 }
+  return (
+    <SheetModal title="🔒 Конфіденційність" onClose={onClose}>
+      <div style={p}>Ми зберігаємо мінімум даних, необхідних для роботи додатку.</div>
+      <div style={h}>Що ми зберігаємо</div>
+      <div style={p}>Ім'я, телефон та email вашого акаунту, оголошення, які ви публікуєте, список обраного та історію листування в чатах.</div>
+      <div style={h}>Хто це бачить</div>
+      <div style={p}>Опубліковані оголошення видно всім користувачам додатку. Телефон і листування в чатах доступні лише вам та співрозмовнику.</div>
+      <div style={h}>Що ми НЕ робимо</div>
+      <div style={p}>Не продаємо і не передаємо ваші дані третім особам.</div>
+      <div style={h}>Видалення акаунту або даних</div>
+      <div style={p}>Напишіть нам у підтримку — видалимо ваш акаунт та пов'язані дані.</div>
+      <button onClick={() => { onClose(); onFeedback() }} style={{ width:'100%', padding:'13px', background:'#8B5CF622', border:'1px solid #8B5CF644', borderRadius:14, color:'#8B5CF6', fontSize:14, fontWeight:600, cursor:'pointer' }}>Написати в підтримку</button>
+    </SheetModal>
+  )
+}
+
+function AboutModal({ onClose, onFeedback }: { onClose: () => void; onFeedback: () => void }) {
+  const p: React.CSSProperties = { fontSize:14, color:'#A0A8BC', lineHeight:1.6, marginBottom:14 }
+  return (
+    <SheetModal title="ℹ️ Про додаток" onClose={onClose}>
+      <div style={{ textAlign:'center' as const, marginBottom:16 }}>
+        <div style={{ fontSize:32, marginBottom:6 }}>🏢</div>
+        <div style={{ fontSize:17, fontWeight:800, color:'#fff' }}>Простір Коштує</div>
+        <div style={{ fontSize:12, color:'#6B7280', marginTop:2 }}>Версія 1.0.0</div>
+      </div>
+      <div style={p}>Застосунок для пошуку та оренди комерційної нерухомості в Одесі — офіси, склади, торгові приміщення від власників.</div>
+      <div style={p}>Знайшли помилку або є ідея, як покращити додаток? Будемо раді почути.</div>
+      <button onClick={() => { onClose(); onFeedback() }} style={{ width:'100%', padding:'13px', background:'#FFB02022', border:'1px solid #FFB02044', borderRadius:14, color:'#FFB020', fontSize:14, fontWeight:600, cursor:'pointer' }}>Зв'язатися з нами</button>
+    </SheetModal>
+  )
+}
+
 function EditModal({ user, onClose, onSaved }: { user: User; onClose: () => void; onSaved: (u: User) => void }) {
   const [name, setName] = useState(user.name)
   const [phone, setPhone] = useState(user.phone || '')
@@ -211,6 +259,8 @@ function AdminDashboard({ propListings, onDeleteListing }: { propListings: Listi
 export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings=[], onListing, onDeleteListing, onRefresh, onMyListings }: Props) {
   const [notif, setNotif] = useState(true)
   const [showEdit, setShowEdit] = useState(false)
+  const [showPrivacy, setShowPrivacy] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
   const [currentUser, setCurrentUser] = useState(user)
   const ptr = usePTR(onRefresh)
   const admin = isAdmin(currentUser)
@@ -338,8 +388,8 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
             <Row icon={<div style={{ color:'#22C55E' }}>{IC.bell}</div>} label="Сповіщення" color="#22C55E"
               right={<div onClick={e => { e.stopPropagation(); setNotif(n => !n) }} style={{ width:44, height:26, borderRadius:13, background:notif?'#FF6B1A':'#2A3045', position:'relative', cursor:'pointer', transition:'background .2s', flexShrink:0 }}><div style={{ position:'absolute', top:3, left:notif?21:3, width:20, height:20, borderRadius:'50%', background:'#fff', transition:'left .2s' }} /></div>}
             />
-            <Row icon={<div style={{ color:'#8B5CF6' }}>{IC.lock}</div>} label="Конфіденційність" sub="Дані та безпека" color="#8B5CF6" onClick={() => showToast('Розділ в розробці')} />
-            <Row icon={<div style={{ color:'#FFB020' }}>{IC.info}</div>} label="Про додаток" sub="v1.0.0" color="#FFB020" onClick={() => showToast('Простір Коштує v1.0.0')} right={<></>} />
+            <Row icon={<div style={{ color:'#8B5CF6' }}>{IC.lock}</div>} label="Конфіденційність" sub="Дані та безпека" color="#8B5CF6" onClick={() => setShowPrivacy(true)} />
+            <Row icon={<div style={{ color:'#FFB020' }}>{IC.info}</div>} label="Про додаток" sub="v1.0.0" color="#FFB020" onClick={() => setShowAbout(true)} />
           </Card>
         </div>
 
@@ -351,6 +401,8 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
       {showEdit && currentUser && (
         <EditModal user={currentUser} onClose={() => setShowEdit(false)} onSaved={u => { setCurrentUser(u); showToast('✅ Профіль оновлено') }} />
       )}
+      {showPrivacy && <PrivacyModal onClose={() => setShowPrivacy(false)} onFeedback={onFeedback} />}
+      {showAbout && <AboutModal onClose={() => setShowAbout(false)} onFeedback={onFeedback} />}
     </div>
   )
 }
