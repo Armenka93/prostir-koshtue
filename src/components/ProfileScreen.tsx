@@ -231,7 +231,7 @@ function EditModal({ user, onClose, onSaved, showToast }: { user: User; onClose:
 }
 
 // ── ADMIN DASHBOARD ───────────────────────────────────────────
-function AdminDashboard({ propListings, onDeleteListing }: { propListings: ListingData[]; onDeleteListing?: (id: number) => void }) {
+function AdminDashboard({ propListings, onDeleteListing, registerReload }: { propListings: ListingData[]; onDeleteListing?: (id: number) => void; registerReload?: (fn: () => void) => void }) {
   const [tab, setTab] = useState<'stats'|'listings'|'feedback'|'users'>('stats')
   const [accounts, setAccounts] = useState<DbAccount[]>([])
   const [feedbacks, setFeedbacks] = useState<DbFeedback[]>([])
@@ -248,6 +248,7 @@ function AdminDashboard({ propListings, onDeleteListing }: { propListings: Listi
 
   useEffect(() => {
     loadAll()
+    registerReload?.(loadAll)
     const acSub = subscribeToAccounts(() => dbGetAccounts().then(setAccounts))
     const fbSub = subscribeFeedback(() => dbGetFeedbacks().then(setFeedbacks))
     const t = setInterval(() => dbGetListings().then(d => { if (d.length > 0) setListings(d) }), 8000)
@@ -271,7 +272,6 @@ function AdminDashboard({ propListings, onDeleteListing }: { propListings: Listi
         <div style={{ background:'linear-gradient(135deg,#FFB020,#FF6B1A)', borderRadius:10, width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', flexShrink:0 }}>{IC.shield}</div>
         <span style={{ fontSize:15, fontWeight:700, color:'#FFB020' }}>Адмін-панель</span>
         {unread > 0 && <span style={{ background:'#EF4444', color:'#fff', fontSize:10, fontWeight:700, borderRadius:20, padding:'2px 7px', marginLeft:'auto' }}>🔴 {unread}</span>}
-        <button onClick={loadAll} style={{ marginLeft:unread>0?4:'auto', background:'#1A1F2E', border:'1px solid #2A3045', borderRadius:8, padding:'4px 10px', color:'#A0A8BC', fontSize:11, cursor:'pointer' }}>↻ Оновити</button>
       </div>
 
       <div style={{ display:'flex', gap:5, marginBottom:14, overflowX:'auto', scrollbarWidth:'none' }}>
@@ -359,9 +359,13 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
   const [showPrivacy, setShowPrivacy] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
   const [currentUser, setCurrentUser] = useState(user)
-  const ptr = usePTR(onRefresh)
+  const adminReloadRef = useRef<(() => void) | null>(null)
+  const ptr = usePTR(async () => {
+    await onRefresh?.()
+    adminReloadRef.current?.()
+  })
   const admin = isAdmin(currentUser)
-  const myListings = listings.filter(l => l.userId === currentUser?.id || l.userId === 'me')
+  const myListings = listings.filter(l => (l.userId === currentUser?.id || l.userId === 'me') && l.isActive !== false)
   const totalViews = myListings.reduce((s, l) => s + (l.views || 0), 0)
 
   useEffect(() => { setCurrentUser(user) }, [user])
@@ -430,7 +434,7 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
 
       <div style={{ padding:'20px 20px 0' }}>
         {/* ADMIN DASHBOARD */}
-        {admin && <AdminDashboard propListings={listings} onDeleteListing={onDeleteListing} />}
+        {admin && <AdminDashboard propListings={listings} onDeleteListing={onDeleteListing} registerReload={fn => { adminReloadRef.current = fn }} />}
 
         {/* QUICK ACTIONS */}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:20 }}>
