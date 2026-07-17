@@ -25,6 +25,8 @@ interface Props {
   listings?: ListingData[]; onListing?: (l: ListingData) => void
   onDeleteListing?: (id: number) => void; onRefresh?: () => Promise<void>
   onMyListings?: () => void
+  onEditListing?: (l: ListingData) => void
+  onArchiveListing?: (id: number) => void
 }
 
 const IC = {
@@ -353,7 +355,7 @@ function AdminDashboard({ propListings, onDeleteListing, registerReload }: { pro
 }
 
 // ── MAIN ─────────────────────────────────────────────────────
-export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings=[], onListing, onDeleteListing, onRefresh, onMyListings }: Props) {
+export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings=[], onListing, onDeleteListing, onRefresh, onMyListings, onEditListing, onArchiveListing }: Props) {
   const [notif, setNotif] = useState(true)
   const [showEdit, setShowEdit] = useState(false)
   const [showPrivacy, setShowPrivacy] = useState(false)
@@ -461,16 +463,25 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
           {myListings.length > 0 ? (
             <Card>
               {myListings.slice(0,3).map((l,i) => (
-                <div key={l.id} onClick={() => onListing?.(l)} style={{ display:'flex', gap:12, padding:'12px 16px', borderBottom:i<Math.min(myListings.length,3)-1?'1px solid #2A3045':'none', cursor:'pointer' }}>
-                  <img src={l.images?.[0]} alt="" style={{ width:50, height:50, borderRadius:10, objectFit:'cover', flexShrink:0 }} />
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:600, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{l.title}</div>
-                    <div style={{ fontSize:12, color:'#A0A8BC', marginTop:2 }}>{l.district} • {l.area} м²</div>
-                    <div style={{ fontSize:14, fontWeight:700, color:'#FF6B1A', marginTop:2 }}>{l.price?.toLocaleString('uk-UA')} ₴/міс</div>
+                <div key={l.id} style={{ display:'flex', gap:12, padding:'12px 16px', borderBottom:i<Math.min(myListings.length,3)-1?'1px solid #2A3045':'none' }}>
+                  <div onClick={() => onListing?.(l)} style={{ display:'flex', gap:12, flex:1, minWidth:0, cursor:'pointer' }}>
+                    <img src={l.images?.[0]} alt="" style={{ width:50, height:50, borderRadius:10, objectFit:'cover', flexShrink:0 }} />
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{l.title}</div>
+                      <div style={{ fontSize:12, color:'#A0A8BC', marginTop:2 }}>{l.district} • {l.area} м²</div>
+                      <div style={{ fontSize:14, fontWeight:700, color:'#FF6B1A', marginTop:2 }}>{l.price?.toLocaleString('uk-UA')} ₴/міс</div>
+                    </div>
                   </div>
-                  <div style={{ flexShrink:0 }}>
+                  <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6, flexShrink:0 }}>
                     <span style={{ background:'#22C55E22', color:'#22C55E', fontSize:10, fontWeight:700, borderRadius:20, padding:'2px 7px' }}>Активне</span>
-                    <div style={{ fontSize:10, color:'#6B7280', marginTop:4, textAlign:'right' as const }}>👁 {l.views||0}</div>
+                    <div style={{ display:'flex', gap:4 }}>
+                      {onEditListing && (
+                        <button onClick={() => onEditListing(l)} style={{ background:'#FFB02018', border:'none', borderRadius:8, padding:'5px 7px', color:'#FFB020', cursor:'pointer', display:'flex', alignItems:'center' }}>{IC.edit}</button>
+                      )}
+                      {onArchiveListing && (
+                        <button onClick={() => { if (confirm('Перенести в архів? Оголошення зникне з пошуку, але ви зможете відновити його пізніше.')) onArchiveListing(l.id) }} style={{ background:'#EF444418', border:'none', borderRadius:8, padding:'5px 7px', color:'#EF4444', cursor:'pointer', display:'flex', alignItems:'center' }}>{IC.trash}</button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
