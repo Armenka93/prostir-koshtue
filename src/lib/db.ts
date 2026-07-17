@@ -156,6 +156,7 @@ export async function dbDeleteListing(id: number): Promise<boolean> {
 export interface DbAccount {
   id: string; name: string; email: string; phone: string
   role: string; password_hash: string; created_at: string
+  avatar_url?: string | null
 }
 
 export async function dbGetAccounts(): Promise<DbAccount[]> {
@@ -182,6 +183,42 @@ export async function dbFindAccount(email: string): Promise<DbAccount | null> {
     if (error) { console.error('[dbFindAccount]', error.message); return null }
     return data
   } catch (e: any) { console.error('[dbFindAccount] CATCH:', e?.message); return null }
+}
+
+export async function dbFindAccountById(id: string): Promise<DbAccount | null> {
+  if (!isSupabaseReady()) return null
+  try {
+    const { data, error } = await supabase
+      .from('accounts')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle()
+    if (error) { console.error('[dbFindAccountById]', error.message); return null }
+    return data
+  } catch (e: any) { console.error('[dbFindAccountById] CATCH:', e?.message); return null }
+}
+
+const AVATARS_BUCKET = 'avatars'
+
+export async function dbUploadAvatar(file: File, userId: string): Promise<string | null> {
+  if (!isSupabaseReady()) return null
+  try {
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+    // Fixed filename per user (not timestamped like listing photos) so a new
+    // upload simply overwrites the old avatar instead of leaving orphans.
+    const path = `${userId}/avatar.${ext}`
+    const { error } = await supabase.storage
+      .from(AVATARS_BUCKET)
+      .upload(path, file, { cacheControl: '3600', upsert: true, contentType: file.type || 'image/jpeg' })
+    if (error) { console.error('[dbUploadAvatar]', error.message); return null }
+    const { data } = supabase.storage.from(AVATARS_BUCKET).getPublicUrl(path)
+    // Cache-bust so the new photo shows immediately even though the path
+    // (and therefore any CDN/browser cache key) is identical to the old one.
+    return `${data.publicUrl}?t=${Date.now()}`
+  } catch (e: any) {
+    console.error('[dbUploadAvatar] CATCH:', e?.message)
+    return null
+  }
 }
 
 export async function dbCreateAccount(acc: DbAccount): Promise<{ ok: boolean; error?: string }> {

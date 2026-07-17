@@ -1,7 +1,7 @@
 /**
  * AUTH — Supabase accounts + localStorage session
  */
-import { dbFindAccount, dbCreateAccount, isSupabaseReady, type DbAccount } from './db'
+import { dbFindAccount, dbFindAccountById, dbCreateAccount, dbUpdateAccount, isSupabaseReady, type DbAccount } from './db'
 import type { User } from '@/types'
 
 export const ADMIN_EMAIL = 'armen.saakyan9393@gmail.com'
@@ -10,7 +10,7 @@ function isAdminEmail(e: string) {
   return e.toLowerCase().trim() === ADMIN_EMAIL.toLowerCase()
 }
 
-function hash(s: string): string {
+export function hash(s: string): string {
   let h = 0
   for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0 }
   return h.toString(36)
@@ -23,6 +23,7 @@ function accToUser(acc: DbAccount): User {
     email: acc.email,
     phone: acc.phone,
     role: isAdminEmail(acc.email) ? 'admin' : (acc.role as User['role']),
+    image: acc.avatar_url || undefined,
   }
 }
 
@@ -83,6 +84,41 @@ export async function loginAccount(
   }
 }
 
+export async function changePassword(
+  userId: string, currentPassword: string, newPassword: string
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseReady()) return { ok: false, error: 'База даних не налаштована.' }
+  try {
+    const acc = await dbFindAccountById(userId)
+    if (!acc) return { ok: false, error: 'Акаунт не знайдено.' }
+    if (acc.password_hash !== hash(currentPassword)) return { ok: false, error: 'Поточний пароль невірний.' }
+    if (newPassword.length < 6) return { ok: false, error: 'Новий пароль має містити щонайменше 6 символів.' }
+    const ok = await dbUpdateAccount(userId, { password_hash: hash(newPassword) })
+    if (!ok) return { ok: false, error: 'Не вдалося зберегти новий пароль.' }
+    return { ok: true }
+  } catch (e: any) {
+    console.error('[changePassword]', e)
+    return { ok: false, error: 'Помилка підключення до бази даних.' }
+  }
+}
+
+export async function changeEmail(
+  userId: string, newEmail: string
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseReady()) return { ok: false, error: 'База даних не налаштована.' }
+  const email = newEmail.toLowerCase().trim()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Введіть коректний email.' }
+  try {
+    const existing = await dbFindAccount(email)
+    if (existing && existing.id !== userId) return { ok: false, error: 'Цей email вже використовується іншим акаунтом.' }
+    const ok = await dbUpdateAccount(userId, { email })
+    if (!ok) return { ok: false, error: 'Не вдалося зберегти email.' }
+    return { ok: true }
+  } catch (e: any) {
+    console.error('[changeEmail]', e)
+    return { ok: false, error: 'Помилка підключення до бази даних.' }
+  }
+}
 // Session — localStorage per device
 const SESSION_KEY = 'pk_session_v3'
 
