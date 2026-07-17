@@ -6,6 +6,7 @@ import { loadFavs, saveFavs } from '@/lib/storage'
 import { loadSession, saveSession, clearSession } from '@/lib/auth'
 import {
   dbGetListings, dbPublishListing, dbUpdateListing, dbDeleteListing,
+  dbArchiveListing, dbRestoreListing,
   subscribeToListings, isSupabaseReady,
   dbGetUserFavorites, dbAddFavorite, dbRemoveFavorite,
 } from '@/lib/db'
@@ -91,6 +92,15 @@ function AppInner() {
     const dbOnly = dbListings.filter(l => !MOCK_IDS.has(l.id))
     return [...dbOnly, ...MOCK_LISTINGS]
   }, [dbListings])
+
+  // Archived (isActive:false) listings must stay OUT of every public-facing
+  // screen (search, similar listings, favorites, home) — only the owner's
+  // own "Мої оголошення" screen is allowed to see them. Public screens use
+  // this filtered list; RequestsScreen alone gets the unfiltered allListings.
+  const visibleListings = React.useMemo(() =>
+    allListings.filter(l => l.isActive !== false),
+    [allListings]
+  )
 
   const loadListings = useCallback(async () => {
     const data = await dbGetListings()
@@ -304,12 +314,34 @@ function AppInner() {
     scrollTop()
   }
 
+  // Permanent delete — used by the admin moderation panel only. Removes the
+  // row entirely and immediately drops it from local state.
   const handleDeleteListing = async (id: number) => {
     setDbListings(prev => prev.filter(l => l.id !== id))
     setRefreshTick(t => t + 1)
     const ok = await dbDeleteListing(id)
     if (!ok) { await loadListings(); showToast('❌ Помилка видалення') }
     else showToast('Оголошення видалено')
+  }
+
+  // Owner-facing "delete" from "Мої оголошення" — archives instead of
+  // permanently deleting, so it can be restored or the listing history
+  // reviewed later. The row stays in dbListings (isActive:false) rather
+  // than being removed, so it can still be found in the archive view.
+  const handleArchiveListing = async (id: number) => {
+    setDbListings(prev => prev.map(l => l.id === id ? { ...l, isActive: false } : l))
+    setRefreshTick(t => t + 1)
+    const ok = await dbArchiveListing(id)
+    if (!ok) { await loadListings(); showToast('❌ Помилка видалення') }
+    else showToast('📦 Перенесено в архів')
+  }
+
+  const handleRestoreListing = async (id: number) => {
+    setDbListings(prev => prev.map(l => l.id === id ? { ...l, isActive: true } : l))
+    setRefreshTick(t => t + 1)
+    const ok = await dbRestoreListing(id)
+    if (!ok) { await loadListings(); showToast('❌ Помилка відновлення') }
+    else showToast('✅ Оголошення відновлено')
   }
 
   const goAddListing = () => {
@@ -330,7 +362,7 @@ function AppInner() {
         onBack={() => { setSelectedListing(null); scrollTop() }}
         onFavorite={toggleFav}
         onSimilar={openListing}
-        allListings={allListings}
+        allListings={visibleListings}
         user={user}
         isGuest={isGuest && !user}
         onLogin={() => { setSelectedListing(null); setPhase('auth') }}
@@ -346,7 +378,7 @@ function AppInner() {
     </>
   )
   if (showAll) return (
-    <><AllListingsScreen title={showAll.title} listings={showAll.items} allListings={allListings} favorites={favs} onListing={openListing} onFavorite={toggleFav} onBack={() => { setShowAll(null); scrollTop() }} /><Toast msg={toastMsg} /></>
+    <><AllListingsScreen title={showAll.title} listings={showAll.items} allListings={visibleListings} favorites={favs} onListing={openListing} onFavorite={toggleFav} onBack={() => { setShowAll(null); scrollTop() }} /><Toast msg={toastMsg} /></>
   )
 
   return (
@@ -355,7 +387,7 @@ function AppInner() {
         {activeScreen === 'home' && (
           <HomeScreen
             key={refreshTick}
-            listings={allListings}
+            listings={visibleListings}
             onListing={openListing}
             onFavorite={toggleFav}
             favorites={favs}
@@ -379,8 +411,8 @@ function AppInner() {
             onInitialChatConsumed={clearInitialChatId}
           />
         )}
-        {activeScreen === 'favorites' && <FavoritesScreen favorites={favs} allListings={allListings} onListing={openListing} onFavorite={toggleFav} onRefresh={handleRefresh} />}
-        {activeScreen === 'requests' && <RequestsScreen user={user} isGuest={isGuest && !user} listings={allListings} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onListing={openListing} onDelete={handleDeleteListing} onEdit={(l) => { setEditingListing(l); scrollTop() }} onRefresh={handleRefresh} onBack={() => { setActiveScreen('profile'); scrollTop() }} />}
+        {activeScreen === 'favorites' && <FavoritesScreen favorites={favs} allListings={visibleListings} onListing={openListing} onFavorite={toggleFav} onRefresh={handleRefresh} />}
+        {activeScreen === 'requests' && <RequestsScreen user={user} isGuest={isGuest && !user} listings={allListings} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onListing={openListing} onDelete={handleArchiveListing} onRestore={handleRestoreListing} onPermanentDelete={handleDeleteListing} onEdit={(l) => { setEditingListing(l); scrollTop() }} onRefresh={handleRefresh} onBack={() => { setActiveScreen('profile'); scrollTop() }} />}
         {activeScreen === 'profile' && <ProfileScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onFeedback={() => { setShowFeedback(true); scrollTop() }} favCount={favs.length} onLogout={handleLogout} showToast={showToast} listings={allListings} onListing={openListing} onDeleteListing={handleDeleteListing} onRefresh={handleRefresh} onMyListings={() => { setActiveScreen('requests'); scrollTop() }} />}
       </div>
       <BottomNav active={activeScreen} onChange={goScreen} favCount={favs.length} unreadMessages={unreadMsgs} />
