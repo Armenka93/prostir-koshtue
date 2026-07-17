@@ -67,9 +67,11 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
               {mine.length > 0 ? `${mine.length} об'єктів` : 'Додайте своє перше приміщення'}
             </div>
           </div>
-          <button onClick={onAddListing} style={{ background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer' }}>
-            + Додати
-          </button>
+          {mine.length > 0 && (
+            <button onClick={onAddListing} style={{ background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer' }}>
+              + Додати
+            </button>
+          )}
         </div>
       </div>
 
