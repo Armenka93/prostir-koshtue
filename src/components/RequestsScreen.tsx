@@ -75,7 +75,7 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
               {mineAll.length > 0 ? `${mine.length} активних` : 'Додайте своє перше приміщення'}
             </div>
           </div>
-          {mineAll.length > 0 && (
+          {list.length > 0 && (
             <button onClick={onAddListing} style={{ background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 14px', cursor: 'pointer' }}>
               + Додати
             </button>
