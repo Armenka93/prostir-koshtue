@@ -1,12 +1,14 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { User, ListingData } from '@/types'
 import {
   dbGetAccounts, dbGetFeedbacks, dbMarkFeedbackRead,
   dbGetListings, subscribeToAccounts, subscribeFeedback,
+  dbUpdateAccount, dbUploadAvatar,
   type DbAccount, type DbFeedback,
 } from '@/lib/db'
-import { updateAccount, saveSession } from '@/lib/storage'
+import { saveSession } from '@/lib/storage'
+import { changePassword, changeEmail } from '@/lib/auth'
 import { usePTR } from '@/hooks/usePTR'
 import PTRIndicator from './PTRIndicator'
 
@@ -102,32 +104,127 @@ function AboutModal({ onClose, onFeedback }: { onClose: () => void; onFeedback: 
   )
 }
 
-function EditModal({ user, onClose, onSaved }: { user: User; onClose: () => void; onSaved: (u: User) => void }) {
+function EditModal({ user, onClose, onSaved, showToast }: { user: User; onClose: () => void; onSaved: (u: User) => void; showToast: (m: string) => void }) {
   const [name, setName] = useState(user.name)
   const [phone, setPhone] = useState(user.phone || '')
+  const [email, setEmail] = useState(user.email)
+  const [avatarPreview, setAvatarPreview] = useState(user.image || '')
+  const [avatarUploading, setAvatarUploading] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const [showPwd, setShowPwd] = useState(false)
+  const [curPwd, setCurPwd] = useState('')
+  const [newPwd, setNewPwd] = useState('')
+  const [newPwd2, setNewPwd2] = useState('')
+  const [pwdError, setPwdError] = useState('')
+  const [pwdLoading, setPwdLoading] = useState(false)
+
   const inp: React.CSSProperties = { width:'100%', background:'#0F1117', border:'1px solid #2A3045', borderRadius:12, padding:'13px 14px', color:'#fff', fontSize:15, fontFamily:'Inter,sans-serif', outline:'none', boxSizing:'border-box' as const }
+  const fld: React.CSSProperties = { fontSize:11, color:'#A0A8BC', marginBottom:5, fontWeight:600, textTransform:'uppercase' as const, letterSpacing:'.5px' }
+
+  const handleAvatarPick = (file: File | undefined) => {
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { setError('Фото більше за 5 MB'); return }
+    setError('')
+    const localPreview = URL.createObjectURL(file)
+    setAvatarPreview(localPreview)
+    setAvatarUploading(true)
+    dbUploadAvatar(file, user.id).then(url => {
+      setAvatarUploading(false)
+      if (url) setAvatarPreview(url)
+      else { setError('Не вдалося завантажити фото'); setAvatarPreview(user.image || '') }
+    })
+  }
+
   const save = async () => {
-    if (!name.trim()) return
+    if (!name.trim()) { setError('Введіть ім\'я'); return }
+    if (avatarUploading) { setError('Зачекайте, фото ще завантажується'); return }
+    setError('')
     setLoading(true)
-    await updateAccount(user.id, { name: name.trim(), phone: phone.trim() })
-    const updated: User = { ...user, name: name.trim(), phone: phone.trim() }
-    saveSession(updated)
+
+    // Email is a separate check (uniqueness against other accounts), so it
+    // goes through its own helper rather than the generic field update.
+    if (email.trim().toLowerCase() !== user.email.toLowerCase()) {
+      const res = await changeEmail(user.id, email)
+      if (!res.ok) { setError(res.error || 'Помилка зміни email'); setLoading(false); return }
+    }
+
+    const ok = await dbUpdateAccount(user.id, {
+      name: name.trim(),
+      phone: phone.trim(),
+      avatar_url: avatarPreview.startsWith('blob:') ? (user.image || null) : (avatarPreview || null),
+    })
     setLoading(false)
+    if (!ok) { setError('Не вдалося зберегти зміни'); return }
+
+    const updated: User = { ...user, name: name.trim(), phone: phone.trim(), email: email.trim().toLowerCase(), image: avatarPreview.startsWith('blob:') ? user.image : avatarPreview }
+    saveSession(updated)
     onSaved(updated)
     onClose()
   }
+
+  const savePassword = async () => {
+    if (!curPwd || !newPwd) { setPwdError('Заповніть обидва поля'); return }
+    if (newPwd !== newPwd2) { setPwdError('Паролі не співпадають'); return }
+    setPwdError('')
+    setPwdLoading(true)
+    const res = await changePassword(user.id, curPwd, newPwd)
+    setPwdLoading(false)
+    if (!res.ok) { setPwdError(res.error || 'Помилка'); return }
+    setCurPwd(''); setNewPwd(''); setNewPwd2(''); setShowPwd(false)
+    showToast('✅ Пароль змінено')
+  }
+
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:600, display:'flex', alignItems:'flex-end', backdropFilter:'blur(4px)' }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ width:'100%', maxWidth:430, margin:'0 auto', background:'#1A1F2E', borderRadius:'24px 24px 0 0', padding:'20px', paddingBottom:'max(24px,env(safe-area-inset-bottom,24px))', border:'1px solid #2A3045' }}>
+      <div onClick={e => e.stopPropagation()} style={{ width:'100%', maxWidth:430, margin:'0 auto', background:'#1A1F2E', borderRadius:'24px 24px 0 0', padding:'20px', paddingBottom:'max(24px,env(safe-area-inset-bottom,24px))', border:'1px solid #2A3045', maxHeight:'85vh', overflowY:'auto' as const }}>
         <div style={{ width:36, height:4, background:'#2A3045', borderRadius:2, margin:'0 auto 20px' }} />
         <div style={{ fontSize:18, fontWeight:700, color:'#fff', marginBottom:20 }}>Редагувати профіль</div>
-        <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:20 }}>
-          <div><div style={{ fontSize:11, color:'#A0A8BC', marginBottom:5, fontWeight:600, textTransform:'uppercase' as const, letterSpacing:'.5px' }}>Ім'я</div><input style={inp} value={name} onChange={e => setName(e.target.value)} /></div>
-          <div><div style={{ fontSize:11, color:'#A0A8BC', marginBottom:5, fontWeight:600, textTransform:'uppercase' as const, letterSpacing:'.5px' }}>Телефон</div><input style={inp} type="tel" value={phone} onChange={e => setPhone(e.target.value)} /></div>
+
+        {error && <div style={{ background:'#EF444418', border:'1px solid #EF444440', borderRadius:12, padding:'10px 12px', marginBottom:14, color:'#EF4444', fontSize:13 }}>⚠️ {error}</div>}
+
+        <div style={{ display:'flex', justifyContent:'center', marginBottom:18 }}>
+          <div onClick={() => fileRef.current?.click()} style={{ position:'relative', cursor:'pointer' }}>
+            <div style={{ width:80, height:80, borderRadius:'50%', overflow:'hidden', background:'linear-gradient(135deg,#FF6B1A,#FFB020)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:30, fontWeight:800, color:'#fff', opacity:avatarUploading?0.5:1 }}>
+              {avatarPreview ? <img src={avatarPreview} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : (name?.charAt(0)?.toUpperCase() || '?')}
+            </div>
+            {avatarUploading && <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22 }}>⏳</div>}
+            <div style={{ position:'absolute', bottom:-2, right:-2, width:26, height:26, borderRadius:'50%', background:'#FF6B1A', border:'2px solid #1A1F2E', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12 }}>📷</div>
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={e => handleAvatarPick(e.target.files?.[0])} />
         </div>
-        <button onClick={save} disabled={loading} style={{ width:'100%', padding:'15px', background:loading?'#4B5563':'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border:'none', borderRadius:14, color:'#fff', fontSize:16, fontWeight:700, cursor:'pointer', marginBottom:8 }}>{loading?'⏳ Збереження...':'Зберегти'}</button>
-        <button onClick={onClose} style={{ width:'100%', padding:'13px', background:'transparent', border:'1px solid #2A3045', borderRadius:14, color:'#A0A8BC', fontSize:14, cursor:'pointer' }}>Скасувати</button>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:20 }}>
+          <div><div style={fld}>Ім'я</div><input style={inp} value={name} onChange={e => setName(e.target.value)} /></div>
+          <div><div style={fld}>Телефон</div><input style={inp} type="tel" value={phone} onChange={e => setPhone(e.target.value)} /></div>
+          <div><div style={fld}>Email</div><input style={inp} type="email" value={email} onChange={e => setEmail(e.target.value)} /></div>
+        </div>
+
+        <button onClick={save} disabled={loading || avatarUploading} style={{ width:'100%', padding:'15px', background:(loading||avatarUploading)?'#4B5563':'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border:'none', borderRadius:14, color:'#fff', fontSize:16, fontWeight:700, cursor:'pointer', marginBottom:8 }}>{loading?'⏳ Збереження...':'Зберегти'}</button>
+
+        <div style={{ borderTop:'1px solid #2A3045', marginTop:6, paddingTop:16 }}>
+          {!showPwd ? (
+            <button onClick={() => setShowPwd(true)} style={{ width:'100%', padding:'13px', background:'transparent', border:'1px solid #2A3045', borderRadius:14, color:'#A0A8BC', fontSize:14, cursor:'pointer' }}>🔑 Змінити пароль</button>
+          ) : (
+            <div>
+              <div style={{ fontSize:13, fontWeight:700, color:'#fff', marginBottom:10 }}>Зміна паролю</div>
+              {pwdError && <div style={{ background:'#EF444418', border:'1px solid #EF444440', borderRadius:12, padding:'10px 12px', marginBottom:10, color:'#EF4444', fontSize:13 }}>⚠️ {pwdError}</div>}
+              <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:10 }}>
+                <div><div style={fld}>Поточний пароль</div><input style={inp} type="password" value={curPwd} onChange={e => setCurPwd(e.target.value)} /></div>
+                <div><div style={fld}>Новий пароль</div><input style={inp} type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} /></div>
+                <div><div style={fld}>Повторіть новий пароль</div><input style={inp} type="password" value={newPwd2} onChange={e => setNewPwd2(e.target.value)} /></div>
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={savePassword} disabled={pwdLoading} style={{ flex:1, padding:'13px', background:pwdLoading?'#4B5563':'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border:'none', borderRadius:12, color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer' }}>{pwdLoading?'⏳':'Зберегти пароль'}</button>
+                <button onClick={() => { setShowPwd(false); setPwdError(''); setCurPwd(''); setNewPwd(''); setNewPwd2('') }} style={{ padding:'13px 16px', background:'transparent', border:'1px solid #2A3045', borderRadius:12, color:'#A0A8BC', fontSize:14, cursor:'pointer' }}>Скасувати</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button onClick={onClose} style={{ width:'100%', padding:'13px', background:'transparent', border:'none', borderRadius:14, color:'#6B7280', fontSize:14, cursor:'pointer', marginTop:10 }}>Закрити</button>
       </div>
     </div>
   )
@@ -297,8 +394,8 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
         <div style={{ position:'absolute', top:-60, right:-60, width:200, height:200, borderRadius:'50%', background:'radial-gradient(circle,rgba(255,107,26,.1),transparent)', pointerEvents:'none' }} />
         <div style={{ display:'flex', alignItems:'flex-start', gap:14, marginBottom:20 }}>
           <div style={{ position:'relative', flexShrink:0 }}>
-            <div style={{ width:68, height:68, borderRadius:20, background:'linear-gradient(135deg,#FF6B1A,#FFB020)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:26, fontWeight:800, color:'#fff', border:'2px solid rgba(255,107,26,.3)' }}>
-              {u.name?.charAt(0)?.toUpperCase() || '?'}
+            <div style={{ width:68, height:68, borderRadius:20, overflow:'hidden', background:'linear-gradient(135deg,#FF6B1A,#FFB020)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:26, fontWeight:800, color:'#fff', border:'2px solid rgba(255,107,26,.3)' }}>
+              {u.image ? <img src={u.image} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : (u.name?.charAt(0)?.toUpperCase() || '?')}
             </div>
             {admin && <div style={{ position:'absolute', bottom:-4, right:-4, background:'linear-gradient(135deg,#FFB020,#FF6B1A)', borderRadius:8, width:22, height:22, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11 }}>🛡️</div>}
           </div>
@@ -399,7 +496,7 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
       </div>
 
       {showEdit && currentUser && (
-        <EditModal user={currentUser} onClose={() => setShowEdit(false)} onSaved={u => { setCurrentUser(u); showToast('✅ Профіль оновлено') }} />
+        <EditModal user={currentUser} onClose={() => setShowEdit(false)} onSaved={u => { setCurrentUser(u); showToast('✅ Профіль оновлено') }} showToast={showToast} />
       )}
       {showPrivacy && <PrivacyModal onClose={() => setShowPrivacy(false)} onFeedback={onFeedback} />}
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} onFeedback={onFeedback} />}
