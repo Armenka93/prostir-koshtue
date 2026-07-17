@@ -142,6 +142,26 @@ export async function dbUpdateListing(id: number, listing: Partial<ListingData>)
   }
 }
 
+// Soft delete: the listing stays in the DB with is_active=false so it can
+// be restored later, instead of dbDeleteListing's permanent removal.
+export async function dbArchiveListing(id: number): Promise<boolean> {
+  if (!isSupabaseReady()) return false
+  try {
+    const { error } = await supabase.from('listings').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', id)
+    if (error) { console.error('[dbArchiveListing]', error.message); return false }
+    return true
+  } catch (e: any) { console.error('[dbArchiveListing] CATCH:', e?.message); return false }
+}
+
+export async function dbRestoreListing(id: number): Promise<boolean> {
+  if (!isSupabaseReady()) return false
+  try {
+    const { error } = await supabase.from('listings').update({ is_active: true, updated_at: new Date().toISOString() }).eq('id', id)
+    if (error) { console.error('[dbRestoreListing]', error.message); return false }
+    return true
+  } catch (e: any) { console.error('[dbRestoreListing] CATCH:', e?.message); return false }
+}
+
 export async function dbDeleteListing(id: number): Promise<boolean> {
   if (!isSupabaseReady()) return false
   try {
