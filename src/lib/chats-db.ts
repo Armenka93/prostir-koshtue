@@ -21,7 +21,26 @@ export interface MessageRecord {
   sender_id: string
   sender_name: string
   text: string
+  image_url?: string | null
   created_at: string
+}
+
+const CHAT_IMAGES_BUCKET = 'chat-images'
+
+export async function uploadChatImage(file: File, chatId: string): Promise<string | null> {
+  try {
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+    const path = `${chatId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+    const { error } = await supabase.storage
+      .from(CHAT_IMAGES_BUCKET)
+      .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || 'image/jpeg' })
+    if (error) { console.error('[uploadChatImage]', error.message); return null }
+    const { data } = supabase.storage.from(CHAT_IMAGES_BUCKET).getPublicUrl(path)
+    return data.publicUrl
+  } catch (e: any) {
+    console.error('[uploadChatImage] CATCH:', e?.message)
+    return null
+  }
 }
 
 export async function getUserChats(userId: string): Promise<ChatRecord[]> {
@@ -86,18 +105,18 @@ export async function getChatMessages(chatId: string): Promise<MessageRecord[]> 
 
 export async function sendMessage(
   chatId: string, senderId: string, senderName: string,
-  text: string, chat: ChatRecord
+  text: string, chat: ChatRecord, imageUrl?: string | null
 ): Promise<MessageRecord | null> {
   const { data, error } = await supabase
     .from('messages')
-    .insert({ chat_id: chatId, sender_id: senderId, sender_name: senderName, text })
+    .insert({ chat_id: chatId, sender_id: senderId, sender_name: senderName, text, image_url: imageUrl || null })
     .select().single()
   if (error) { console.error('[sendMessage]', error.message); return null }
 
   // Increment unread ONLY for the other person
   const isBuyer = senderId === chat.buyer_id
   const updateData: Record<string, unknown> = {
-    last_message: text,
+    last_message: text || (imageUrl ? '📷 Фото' : ''),
     last_at: new Date().toISOString(),
     unread_buyer: isBuyer ? 0 : (chat.unread_buyer || 0) + 1,
     unread_seller: isBuyer ? (chat.unread_seller || 0) + 1 : 0,
