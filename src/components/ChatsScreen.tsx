@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import type { User } from '@/types'
 import {
   getUserChats, getChatMessages, sendMessage, markChatRead,
-  deleteChat, subscribeToMessages, subscribeToUserChats,
+  deleteChat, subscribeToMessages, subscribeToUserChats, uploadChatImage,
   type ChatRecord, type MessageRecord,
 } from '@/lib/chats-db'
 import { usePTR } from '@/hooks/usePTR'
@@ -210,8 +210,11 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   const [messages, setMessages] = useState<MessageRecord[]>([])
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [pendingImage, setPendingImage] = useState<{ previewUrl: string; uploadedUrl: string | null; uploading: boolean; failed: boolean } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const [loading, setLoading] = useState(true)
   const [inputH, setInputH] = useState(0)   // keyboard height compensation
+  const [vvOffsetTop, setVvOffsetTop] = useState(0) // iOS scrolls the page up when the keyboard opens — this cancels that shift
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatRef = useRef(chat)
@@ -231,6 +234,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     const update = () => {
       const diff = window.innerHeight - vv.height - vv.offsetTop
       setInputH(Math.max(0, diff))
+      setVvOffsetTop(vv.offsetTop)
       setTimeout(() => scrollDown(true), 80)
     }
     vv.addEventListener('resize', update)
@@ -258,7 +262,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         // the optimistic temp bubble (negative id) is still showing —
         // replace it instead of appending, so we never show both.
         if (!fromOther) {
-          const tempIdx = prev.findIndex(m => m.id < 0 && m.text === msg.text && m.sender_id === msg.sender_id)
+          const tempIdx = prev.findIndex(m => m.id < 0 && m.text === msg.text && m.sender_id === msg.sender_id && m.image_url === msg.image_url)
           if (tempIdx !== -1) {
             const copy = [...prev]
             copy[tempIdx] = msg
@@ -276,22 +280,37 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     return () => { sub.unsubscribe() }
   }, [chat.id, user.id, scrollDown])
 
+  const handlePickImage = (file: File | undefined) => {
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) { return }
+    const previewUrl = URL.createObjectURL(file)
+    setPendingImage({ previewUrl, uploadedUrl: null, uploading: true, failed: false })
+    uploadChatImage(file, chat.id).then(url => {
+      setPendingImage(p => p && p.previewUrl === previewUrl ? { ...p, uploadedUrl: url, uploading: false, failed: !url } : p)
+    })
+  }
+
   const handleSend = async () => {
     const t = text.trim()
-    if (!t || sending) return
+    const img = pendingImage
+    if (!t && !img) return
+    if (img?.uploading) return // still uploading — wait
+    if (sending) return
     setSending(true)
     setText('')
+    setPendingImage(null)
     playSentSound()
 
     const tmp: MessageRecord = {
       id: -Date.now(), chat_id: chat.id,
       sender_id: user.id, sender_name: user.name,
-      text: t, created_at: new Date().toISOString(),
+      text: t, image_url: img?.uploadedUrl || img?.previewUrl || null,
+      created_at: new Date().toISOString(),
     }
     setMessages(p => [...p, tmp])
     setTimeout(() => scrollDown(), 60)
 
-    const saved = await sendMessage(chat.id, user.id, user.name, t, chatRef.current)
+    const saved = await sendMessage(chat.id, user.id, user.name, t, chatRef.current, img?.uploadedUrl)
     if (saved) {
       setMessages(p => {
         // If realtime already replaced/added it, just make sure no
@@ -302,7 +321,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
       })
       chatRef.current = {
         ...chatRef.current,
-        last_message: t,
+        last_message: t || (img ? '📷 Фото' : ''),
         unread_seller: user.id === chat.buyer_id
           ? (chatRef.current.unread_seller || 0) + 1
           : chatRef.current.unread_seller,
@@ -323,6 +342,10 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
       // Push content up by keyboard height
       paddingBottom: inputH,
       boxSizing: 'border-box' as const,
+      // Cancel iOS Safari's habit of scrolling the whole page (and dragging
+      // this "fixed" panel with it, header included) when the keyboard
+      // opens — without this, the header scrolls off-screen while typing.
+      transform: vvOffsetTop ? `translateY(${vvOffsetTop}px)` : undefined,
       transition: 'padding-bottom .05s',
     }}>
       {/* Header */}
@@ -372,11 +395,18 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
                 <div style={{
                   background: mine ? 'linear-gradient(135deg,#FF6B1A,#FF8C3A)' : '#1E2334',
                   borderRadius: mine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                  padding: '10px 14px',
+                  padding: msg.image_url ? 6 : '10px 14px',
                   border: mine ? 'none' : '1px solid #2A3045',
                   opacity: msg.id < 0 ? 0.55 : 1,
                 }}>
-                  <div style={{ fontSize: 15, color: '#fff', lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</div>
+                  {msg.image_url && (
+                    <img
+                      src={msg.image_url}
+                      onClick={() => window.open(msg.image_url!, '_blank')}
+                      style={{ display: 'block', maxWidth: '100%', maxHeight: 260, borderRadius: 14, cursor: 'pointer', marginBottom: msg.text ? 6 : 0 }}
+                    />
+                  )}
+                  {msg.text && <div style={{ fontSize: 15, color: '#fff', lineHeight: 1.5, wordBreak: 'break-word', padding: msg.image_url ? '0 6px' : 0 }}>{msg.text}</div>}
                 </div>
                 <div style={{ fontSize: 10, color: '#4B5563', marginTop: 3, textAlign: mine ? 'right' : 'left', paddingLeft: mine ? 0 : 4, paddingRight: mine ? 4 : 0 }}>
                   {msg.id < 0 ? '⏳' : timeStr(msg.created_at)}{mine && msg.id > 0 ? ' ✓' : ''}
@@ -393,11 +423,29 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         flexShrink: 0,
         background: '#0D1018',
         borderTop: '1px solid #1E2334',
+      }}>
+        {pendingImage && (
+          <div style={{ padding: '10px 16px 0', display: 'flex' }}>
+            <div style={{ position: 'relative' }}>
+              <img src={pendingImage.previewUrl} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 12, opacity: pendingImage.uploading ? 0.5 : 1, border: pendingImage.failed ? '2px solid #EF4444' : 'none' }} />
+              {pendingImage.uploading && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>⏳</div>}
+              <button onClick={() => setPendingImage(null)} style={{ position: 'absolute', top: -6, right: -6, background: '#EF4444', border: 'none', borderRadius: '50%', width: 20, height: 20, cursor: 'pointer', color: '#fff', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            </div>
+          </div>
+        )}
+        <div style={{
         padding: '10px 16px',
         // Safe area only when keyboard is closed
         paddingBottom: inputH > 0 ? 10 : 'max(14px,env(safe-area-inset-bottom,14px))',
         display: 'flex', gap: 10, alignItems: 'center',
       }}>
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { handlePickImage(e.target.files?.[0]); e.target.value = '' }} />
+        <button
+          onClick={() => fileRef.current?.click()}
+          style={{ width: 40, height: 40, borderRadius: '50%', border: 'none', flexShrink: 0, background: '#1A1F2E', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+        >
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#A0A8BC" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        </button>
         <input
           ref={inputRef}
           value={text}
@@ -416,11 +464,11 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         />
         <button
           onClick={handleSend}
-          disabled={!text.trim() || sending}
+          disabled={(!text.trim() && !pendingImage) || sending || pendingImage?.uploading}
           style={{
             width: 46, height: 46, borderRadius: '50%', border: 'none', flexShrink: 0,
-            background: text.trim() ? 'linear-gradient(135deg,#FF6B1A,#FF8C3A)' : '#1E2334',
-            cursor: text.trim() ? 'pointer' : 'default',
+            background: (text.trim() || pendingImage) ? 'linear-gradient(135deg,#FF6B1A,#FF8C3A)' : '#1E2334',
+            cursor: (text.trim() || pendingImage) ? 'pointer' : 'default',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             transition: 'background .15s', touchAction: 'manipulation',
           }}
@@ -430,6 +478,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
             <polygon points="22 2 15 22 11 13 2 9 22 2"/>
           </svg>
         </button>
+        </div>
       </div>
     </div>
   )
