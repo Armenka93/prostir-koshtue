@@ -95,13 +95,10 @@ export default function HomeScreen({
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-            <img src="/logo-main.png" alt="" loading="eager"
-              style={{ width: 40, height: 40, objectFit: 'contain', flexShrink: 0 }}
-              onError={e => { const t = e.target as HTMLImageElement; t.onerror = null; t.style.cssText = 'width:40px;height:40px;background:linear-gradient(135deg,#FF6B1A,#FFB020);border-radius:12px;flex-shrink:0' }}
+            <img src="/logo-main.png" alt="Простір коштує" loading="eager"
+              style={{ width: 56, height: 56, objectFit: 'contain', flexShrink: 0 }}
+              onError={e => { const t = e.target as HTMLImageElement; t.onerror = null; t.style.cssText = 'width:56px;height:56px;background:linear-gradient(135deg,#FF6B1A,#FFB020);border-radius:12px;flex-shrink:0' }}
             />
-            <span style={{ fontFamily: "'Russo One', sans-serif", fontSize: 'clamp(13px,4vw,17px)', color: '#FFB020', letterSpacing: '.3px', whiteSpace: 'nowrap' }}>
-              ПРОСТІР КОШТУЄ
-            </span>
           </div>
           <div style={{ flexShrink: 0, marginLeft: 8 }}>
             {user ? (

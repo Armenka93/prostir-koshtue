@@ -78,9 +78,9 @@ export default function PropertyCard({ listing: l, onPress, onFavorite, isFavori
     }}>
       <img src={img} alt={l.title} style={{ width: 110, height: 110, objectFit: 'cover', borderRadius: 12, flexShrink: 0 }} loading="lazy" />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, paddingRight: 34 }}>
           <span style={{ background: tc + '22', color: tc, fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '2px 8px' }}>{l.type}</span>
-          {l.isNew && <span style={{ background: '#FF6B1A22', color: '#FF6B1A', fontSize: 10, fontWeight: 700, borderRadius: 20, padding: '2px 6px' }}>НОВИЙ</span>}
+          {l.isNew && <span style={{ background: '#FF6B1A22', color: '#FF6B1A', fontSize: 10, fontWeight: 700, borderRadius: 20, padding: '2px 6px', whiteSpace: 'nowrap' }}>НОВИЙ</span>}
         </div>
         <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 4, lineHeight: 1.3 }}>
           {l.title.length > 40 ? l.title.slice(0, 40) + '…' : l.title}
@@ -90,7 +90,7 @@ export default function PropertyCard({ listing: l, onPress, onFavorite, isFavori
         {l.features && l.features.length > 0 && (
           <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
             {l.features.slice(0, 2).map(f => (
-              <span key={f} style={{ background: '#0F1117', color: '#A0A8BC', fontSize: 10, borderRadius: 6, padding: '2px 6px', border: '1px solid #2A3045' }}>{f}</span>
+              <span key={f} style={{ background: '#0F1117', color: '#A0A8BC', fontSize: 10, borderRadius: 6, padding: '2px 6px', border: '1px solid #2A3045', maxWidth: '100%', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{f}</span>
             ))}
           </div>
         )}

@@ -267,7 +267,7 @@ export default function DetailScreen({
         {data.description && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Про об'єкт</div>
-            <div style={{ fontSize: 14, color: '#A0A8BC', lineHeight: 1.6 }}>{data.description}</div>
+            <div style={{ fontSize: 14, color: '#A0A8BC', lineHeight: 1.6, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{data.description}</div>
           </div>
         )}
 
@@ -297,7 +297,7 @@ export default function DetailScreen({
             <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 10 }}>Переваги</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {data.features.map(f => (
-                <span key={f} style={{ background: '#1A1F2E', border: '1px solid #FF6B1A44', color: '#FF6B1A', fontSize: 12, fontWeight: 500, borderRadius: 20, padding: '5px 12px' }}>✓ {f}</span>
+                <span key={f} style={{ background: '#1A1F2E', border: '1px solid #FF6B1A44', color: '#FF6B1A', fontSize: 12, fontWeight: 500, borderRadius: 20, padding: '5px 12px', maxWidth: '100%', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>✓ {f}</span>
               ))}
             </div>
           </div>
