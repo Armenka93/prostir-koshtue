@@ -187,3 +187,20 @@ export function saveFeedback(fb: Omit<FeedbackRecord, 'id' | 'createdAt' | 'read
 export function markFeedbackRead(id: string) {
   safe_set(K.FEEDBACK, getFeedbacks().map(f => f.id === id ? { ...f, read: true } : f))
 }
+
+// ── VIEW DEDUP ───────────────────────────────────────────────
+// Prevents a single browser from inflating a listing's view count by
+// reloading the page repeatedly. Not cross-device (that would need a
+// server-side listing_views table) — deliberately simple for the app's
+// current scale; upgrade to a server-side table only if that ever matters.
+const VIEW_TTL_MS = 24 * 60 * 60 * 1000 // 24h
+export function hasViewedRecently(listingId: number): boolean {
+  try {
+    const raw = localStorage.getItem('pk_viewed_' + listingId)
+    if (!raw) return false
+    return Date.now() - Number(raw) < VIEW_TTL_MS
+  } catch { return false }
+}
+export function markViewed(listingId: number) {
+  try { localStorage.setItem('pk_viewed_' + listingId, String(Date.now())) } catch {}
+}
