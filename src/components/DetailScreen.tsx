@@ -5,6 +5,7 @@ import { TYPE_COLORS, maskPhone, formatPhone, telHref } from '@/types'
 import { getOrCreateChat } from '@/lib/chats-db'
 import { dbIncrementViews, dbGetListingCounters } from '@/lib/db'
 import { isMockListingId } from '@/lib/mockData'
+import { hasViewedRecently, markViewed } from '@/lib/storage'
 
 interface Props {
   listing: ListingData
@@ -80,6 +81,11 @@ export default function DetailScreen({
 
     // Don't count views on your own listing or on mock/demo listings
     if (isOwn || isMockListing) return
+
+    // Don't count a view from this browser again within 24h — otherwise
+    // reloading the page repeatedly inflates the counter meaninglessly.
+    if (hasViewedRecently(data.id)) return
+    markViewed(data.id)
 
     let cancelled = false
     ;(async () => {
