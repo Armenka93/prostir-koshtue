@@ -213,8 +213,15 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   const [pendingImage, setPendingImage] = useState<{ previewUrl: string; uploadedUrl: string | null; uploading: boolean; failed: boolean } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [loading, setLoading] = useState(true)
-  const [inputH, setInputH] = useState(0)   // keyboard height compensation
-  const [vvOffsetTop, setVvOffsetTop] = useState(0) // iOS scrolls the page up when the keyboard opens — this cancels that shift
+  // The chat panel is pinned to exactly the visible viewport (not the full
+  // window), so it's always correctly positioned above the keyboard on
+  // mobile. A previous approach tried to compensate for iOS's keyboard
+  // scrolling with a manual padding + CSS transform shift, which is fragile
+  // and was itself the cause of the input field ending up hidden off-screen
+  // while typing. Directly sizing/positioning to the visualViewport is the
+  // simpler, more reliable fix — no compensation math needed.
+  const [containerTop, setContainerTop] = useState(0)
+  const [containerHeight, setContainerHeight] = useState<number | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatRef = useRef(chat)
@@ -227,16 +234,17 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     el.scrollTo({ top: el.scrollHeight, behavior: instant ? ('instant' as any) : 'smooth' })
   }, [])
 
-  // Track visual viewport for keyboard
+  // Keep the chat panel exactly matched to the visible viewport, so the
+  // input bar is always visible right above the on-screen keyboard.
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
     const update = () => {
-      const diff = window.innerHeight - vv.height - vv.offsetTop
-      setInputH(Math.max(0, diff))
-      setVvOffsetTop(vv.offsetTop)
+      setContainerTop(vv.offsetTop)
+      setContainerHeight(vv.height)
       setTimeout(() => scrollDown(true), 80)
     }
+    update()
     vv.addEventListener('resize', update)
     vv.addEventListener('scroll', update)
     return () => {
@@ -336,17 +344,13 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 200,
+      position: 'fixed', left: 0, right: 0,
+      top: containerTop,
+      height: containerHeight ?? '100dvh',
+      zIndex: 200,
       display: 'flex', flexDirection: 'column',
       background: '#0F1117',
-      // Push content up by keyboard height
-      paddingBottom: inputH,
       boxSizing: 'border-box' as const,
-      // Cancel iOS Safari's habit of scrolling the whole page (and dragging
-      // this "fixed" panel with it, header included) when the keyboard
-      // opens — without this, the header scrolls off-screen while typing.
-      transform: vvOffsetTop ? `translateY(${vvOffsetTop}px)` : undefined,
-      transition: 'padding-bottom .05s',
     }}>
       {/* Header */}
       <div style={{
@@ -435,8 +439,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         )}
         <div style={{
         padding: '10px 16px',
-        // Safe area only when keyboard is closed
-        paddingBottom: inputH > 0 ? 10 : 'max(14px,env(safe-area-inset-bottom,14px))',
+        paddingBottom: 'max(14px,env(safe-area-inset-bottom,14px))',
         display: 'flex', gap: 10, alignItems: 'center',
       }}>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { handlePickImage(e.target.files?.[0]); e.target.value = '' }} />
