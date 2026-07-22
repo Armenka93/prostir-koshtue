@@ -94,10 +94,10 @@ export default function HomeScreen({
         background: 'linear-gradient(180deg,#0D1018,#0F1117)',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-            <img src="/logo-main.png" alt="Простір коштує" loading="eager"
-              style={{ width: 56, height: 56, objectFit: 'contain', flexShrink: 0 }}
-              onError={e => { const t = e.target as HTMLImageElement; t.onerror = null; t.style.cssText = 'width:56px;height:56px;background:linear-gradient(135deg,#FF6B1A,#FFB020);border-radius:12px;flex-shrink:0' }}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+            <img src="/logo-horizontal.png" alt="Простір коштує" loading="eager"
+              style={{ height: 44, width: 'auto', maxWidth: '100%', objectFit: 'contain', flexShrink: 0 }}
+              onError={e => { const t = e.target as HTMLImageElement; t.onerror = null; t.style.cssText = 'height:44px;width:120px;background:linear-gradient(135deg,#FF6B1A,#FFB020);border-radius:12px;flex-shrink:0' }}
             />
           </div>
           <div style={{ flexShrink: 0, marginLeft: 8 }}>
