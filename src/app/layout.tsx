@@ -20,6 +20,14 @@ export const viewport: Viewport = {
   userScalable: false,
   themeColor: '#FF6B1A',
   viewportFit: 'cover',
+  // Without this, mobile browsers (especially in standalone/PWA mode on
+  // iOS) tend to just overlay the keyboard on top of the page without
+  // resizing anything — so fixed-position elements and 100dvh containers
+  // don't actually shrink to the real visible area. This is very likely
+  // the root cause of the header scrolling off-screen while typing and
+  // the leftover blank strip after the keyboard closes: the browser simply
+  // wasn't being told to resize the content for the keyboard at all.
+  interactiveWidget: 'resizes-content',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
