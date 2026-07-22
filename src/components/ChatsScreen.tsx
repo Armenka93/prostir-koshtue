@@ -213,15 +213,6 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   const [pendingImage, setPendingImage] = useState<{ previewUrl: string; uploadedUrl: string | null; uploading: boolean; failed: boolean } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [loading, setLoading] = useState(true)
-  // The chat panel is pinned to exactly the visible viewport (not the full
-  // window), so it's always correctly positioned above the keyboard on
-  // mobile. A previous approach tried to compensate for iOS's keyboard
-  // scrolling with a manual padding + CSS transform shift, which is fragile
-  // and was itself the cause of the input field ending up hidden off-screen
-  // while typing. Directly sizing/positioning to the visualViewport is the
-  // simpler, more reliable fix — no compensation math needed.
-  const [containerTop, setContainerTop] = useState(0)
-  const [containerHeight, setContainerHeight] = useState<number | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatRef = useRef(chat)
@@ -234,23 +225,24 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     el.scrollTo({ top: el.scrollHeight, behavior: instant ? ('instant' as any) : 'smooth' })
   }, [])
 
-  // Keep the chat panel exactly matched to the visible viewport, so the
-  // input bar is always visible right above the on-screen keyboard.
+  // Keep messages scrolled to the bottom when the keyboard opens/closes.
+  // Sizing/positioning itself is handled entirely by CSS (100dvh) below —
+  // NOT by JS reading window.visualViewport and re-rendering with a
+  // computed height/top. That JS approach was tried twice already (once
+  // with a manual padding+transform shift, once with visualViewport-driven
+  // inline height/top) and both caused visible problems: the container
+  // lagging a render behind the actual keyboard animation (causing the
+  // "jumps" while typing), and stale state persisting after closing and
+  // reopening a chat (causing a leftover black gap at the bottom). CSS
+  // dvh units are handled natively by the browser's rendering engine in
+  // sync with the keyboard animation, with no React round-trip lag, and
+  // never go stale since there's no state to get stuck.
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
-    const update = () => {
-      setContainerTop(vv.offsetTop)
-      setContainerHeight(vv.height)
-      setTimeout(() => scrollDown(true), 80)
-    }
-    update()
-    vv.addEventListener('resize', update)
-    vv.addEventListener('scroll', update)
-    return () => {
-      vv.removeEventListener('resize', update)
-      vv.removeEventListener('scroll', update)
-    }
+    const onResize = () => setTimeout(() => scrollDown(true), 80)
+    vv.addEventListener('resize', onResize)
+    return () => vv.removeEventListener('resize', onResize)
   }, [scrollDown])
 
   useEffect(() => {
@@ -344,9 +336,8 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 
   return (
     <div style={{
-      position: 'fixed', left: 0, right: 0,
-      top: containerTop,
-      height: containerHeight ?? '100dvh',
+      position: 'fixed', left: 0, right: 0, top: 0,
+      height: '100dvh',
       zIndex: 200,
       display: 'flex', flexDirection: 'column',
       background: '#0F1117',
@@ -359,7 +350,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         paddingBottom: 10, paddingLeft: 6, paddingRight: 12,
         display: 'flex', alignItems: 'center', gap: 8,
       }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px 10px', display: 'flex', alignItems: 'center' }}>
+        <button onClick={() => { inputRef.current?.blur(); onBack() }} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px 10px', display: 'flex', alignItems: 'center' }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
         <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,#FF6B1A,#FFB020)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
