@@ -228,10 +228,13 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 
     let raf = 0
     const apply = () => {
-      // Sync panel to the actual visible area above the keyboard.
-      el.style.top    = vv.offsetTop + 'px'
-      el.style.height = vv.height    + 'px'
-      // Scroll messages to bottom only after keyboard events, not on mount.
+      // vv.offsetTop can transiently be non-zero while vv.height is
+      // already back to full window height (iOS settling after keyboard
+      // close). If height ≈ window.innerHeight the keyboard is gone,
+      // so clamp top to 0 to avoid a stale gap at the bottom.
+      const keyboardOpen = vv.height < window.innerHeight - 100
+      el.style.top    = keyboardOpen ? vv.offsetTop + 'px' : '0px'
+      el.style.height = vv.height + 'px'
     }
     const onVV = () => {
       cancelAnimationFrame(raf)
@@ -327,7 +330,10 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
       }
     }
     setSending(false)
-    setTimeout(() => inputRef.current?.focus(), 50)
+    // Deliberately NOT calling inputRef.current?.focus() here.
+    // On iOS, re-focusing the input immediately after send causes the
+    // keyboard to reopen, which interrupts the visualViewport restoring
+    // vv.offsetTop → 0, leaving a stale gap at the bottom of the screen.
   }
 
   const handlePhotoSend = async (file: File) => {
