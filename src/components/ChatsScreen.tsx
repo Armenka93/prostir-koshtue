@@ -180,6 +180,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
+  const photoRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -291,6 +292,30 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     setTimeout(() => inputRef.current?.focus(), 50)
   }
 
+  const handlePhotoSend = async (file: File) => {
+    if (!file || sending) return
+    setSending(true)
+    // Send photo as a data URL — simple approach that works without extra
+    // storage setup. For large files this could be slow; if that becomes
+    // an issue, switch to Supabase Storage upload (same pattern as listing photos).
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      const dataUrl = e.target?.result as string
+      const photoMsg: MessageRecord = {
+        id: -Date.now(), chat_id: chat.id,
+        sender_id: user.id, sender_name: user.name,
+        text: `[photo]${dataUrl}`,
+        created_at: new Date().toISOString(), read: false,
+      }
+      setMessages(prev => [...prev, photoMsg])
+      setTimeout(() => scrollDown(true), 30)
+      const saved = await sendMessage(chat.id, user.id, user.name, `[photo]${dataUrl}`, chatRef.current)
+      if (saved) setMessages(prev => prev.map(m => m.id === photoMsg.id ? saved : m))
+      setSending(false)
+    }
+    reader.readAsDataURL(file)
+  }
+
   return (
     <div ref={containerRef} style={{
       position: 'fixed', left: 0, right: 0,
@@ -351,11 +376,16 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
                 <div style={{
                   background: mine ? 'linear-gradient(135deg,#FF6B1A,#FF8C3A)' : '#1E2334',
                   borderRadius: mine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                  padding: '10px 14px',
+                  padding: msg.text.startsWith('[photo]') ? '4px' : '10px 14px',
                   border: mine ? 'none' : '1px solid #2A3045',
                   opacity: msg.id < 0 ? 0.55 : 1,
+                  overflow: 'hidden',
                 }}>
-                  <div style={{ fontSize: 15, color: '#fff', lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</div>
+                  {msg.text.startsWith('[photo]') ? (
+                    <img src={msg.text.slice(7)} alt="фото" style={{ maxWidth: 220, maxHeight: 280, borderRadius: 14, display: 'block', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ fontSize: 15, color: '#fff', lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</div>
+                  )}
                 </div>
                 <div style={{ fontSize: 10, color: '#4B5563', marginTop: 3, textAlign: mine ? 'right' : 'left', paddingLeft: mine ? 0 : 4, paddingRight: mine ? 4 : 0 }}>
                   {msg.id < 0 ? '⏳' : timeStr(msg.created_at)}{mine && msg.id > 0 ? ' ✓' : ''}
@@ -367,7 +397,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         <div style={{ height: 4, flexShrink: 0 }} />
       </div>
 
-      {/* Input — always at bottom, NOT affected by keyboard (paddingBottom on parent handles it) */}
+      {/* Input */}
       <div style={{
         flexShrink: 0,
         background: '#0D1018',
@@ -376,6 +406,11 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         paddingBottom: 'max(10px,env(safe-area-inset-bottom,10px))',
         display: 'flex', gap: 10, alignItems: 'center',
       }}>
+        {/* Photo button */}
+        <button onClick={() => photoRef.current?.click()} style={{ width: 38, height: 38, borderRadius: 12, border: 'none', background: '#1A1F2E', color: '#A0A8BC', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, touchAction: 'manipulation' }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        </button>
+        <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoSend(f); e.target.value = '' }} />
         <input
           ref={inputRef}
           value={text}
