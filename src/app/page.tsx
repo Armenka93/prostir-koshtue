@@ -418,7 +418,7 @@ function AppInner() {
         {activeScreen === 'requests' && <RequestsScreen user={user} isGuest={isGuest && !user} listings={allListings} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onListing={openListing} onDelete={handleArchiveListing} onRestore={handleRestoreListing} onPermanentDelete={handleDeleteListing} onEdit={(l) => { setEditingListing(l); scrollTop() }} onRefresh={handleRefresh} onBack={() => { setActiveScreen('profile'); scrollTop() }} />}
         {activeScreen === 'profile' && <ProfileScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onFeedback={() => { setShowFeedback(true); scrollTop() }} favCount={favs.length} onLogout={handleLogout} showToast={showToast} listings={allListings} onListing={openListing} onDeleteListing={handleDeleteListing} onRefresh={handleRefresh} onMyListings={() => { setActiveScreen('requests'); scrollTop() }} onEditListing={(l) => { setEditingListing(l); scrollTop() }} onArchiveListing={handleArchiveListing} />}
       </div>
-      <BottomNav active={activeScreen} onChange={goScreen} favCount={favs.length} unreadMessages={unreadMsgs} />
+      {activeScreen !== 'messages' && <BottomNav active={activeScreen} onChange={goScreen} favCount={favs.length} unreadMessages={unreadMsgs} />}
       <Toast msg={toastMsg} />
       <InstallPrompt />
     </>
