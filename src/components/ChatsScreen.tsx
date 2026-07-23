@@ -182,10 +182,10 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
-  const photoRef = useRef<HTMLInputElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [inputH, setInputH] = useState(0)   // keyboard height compensation
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const photoRef = useRef<HTMLInputElement>(null)
   const chatRef = useRef(chat)
   chatRef.current = chat
   const otherName = chat.buyer_id === user.id ? chat.seller_name : chat.buyer_name
@@ -196,38 +196,20 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     el.scrollTo({ top: el.scrollHeight, behavior: instant ? ('instant' as any) : 'smooth' })
   }, [])
 
-  // Sync the chat container to the real visible viewport WITHOUT using React
-  // state — setState causes a render cycle that always lags one frame behind
-  // the keyboard animation, creating visible jumps and stale-height gaps.
-  // Direct DOM style mutation is synchronous with the browser's layout,
-  // so the container always matches the keyboard with zero lag.
+  // Track visual viewport for keyboard
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
-    let raf = 0
-    const apply = () => {
-      const el = containerRef.current
-      if (!el) return
-      el.style.top = vv.offsetTop + 'px'
-      el.style.height = vv.height + 'px'
-      setTimeout(() => scrollDown(true), 50)
+    const update = () => {
+      const diff = window.innerHeight - vv.height - vv.offsetTop
+      setInputH(Math.max(0, diff))
+      setTimeout(() => scrollDown(true), 80)
     }
-    // iOS fires resize/scroll multiple times in quick succession while the
-    // keyboard settles (keyboard slide-in, then the QuickType suggestion
-    // bar toggling on/off) — applying every single one causes a visible
-    // double-jump. Coalescing to one application per animation frame fixes
-    // that without adding any perceptible delay.
-    const sync = () => {
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(apply)
-    }
-    sync()
-    vv.addEventListener('resize', sync)
-    vv.addEventListener('scroll', sync)
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
     return () => {
-      cancelAnimationFrame(raf)
-      vv.removeEventListener('resize', sync)
-      vv.removeEventListener('scroll', sync)
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
     }
   }, [scrollDown])
 
@@ -309,40 +291,31 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     if (!file || sending) return
     if (file.size > 10 * 1024 * 1024) { alert('Фото більше за 10 MB'); return }
     setSending(true)
-    // Instant local preview using an object URL while the real upload runs
-    // in the background.
     const previewUrl = URL.createObjectURL(file)
     const tempId = -Date.now()
-    const photoMsg: MessageRecord = {
-      id: tempId, chat_id: chat.id,
-      sender_id: user.id, sender_name: user.name,
-      text: '', image_url: previewUrl,
-      created_at: new Date().toISOString(),
-    }
-    setMessages(prev => [...prev, photoMsg])
+    setMessages(prev => [...prev, { id: tempId, chat_id: chat.id, sender_id: user.id, sender_name: user.name, text: '', image_url: previewUrl, created_at: new Date().toISOString() }])
     setTimeout(() => scrollDown(true), 30)
-
     const url = await uploadChatImage(file, chat.id)
     if (!url) {
       setMessages(prev => prev.filter(m => m.id !== tempId))
-      alert('Не вдалося завантажити фото. Спробуйте ще раз.')
+      alert('Не вдалося завантажити фото')
       setSending(false)
       return
     }
     const saved = await sendMessage(chat.id, user.id, user.name, '', chatRef.current, url)
-    setMessages(prev => prev.map(m => m.id === tempId ? (saved || { ...photoMsg, image_url: url }) : m))
+    setMessages(prev => prev.map(m => m.id === tempId ? (saved || { ...m, image_url: url }) : m))
     setSending(false)
   }
 
   return (
-    <div ref={containerRef} style={{
-      position: 'fixed', left: 0, right: 0,
-      top: 0, height: '100dvh', // will be overridden by direct DOM sync above
-      zIndex: 200,
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 200,
       display: 'flex', flexDirection: 'column',
       background: '#0F1117',
+      // Push content up by keyboard height
+      paddingBottom: inputH,
       boxSizing: 'border-box' as const,
-      overflow: 'hidden',
+      transition: 'padding-bottom .05s',
     }}>
       {/* Header */}
       <div style={{
@@ -351,7 +324,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         paddingBottom: 10, paddingLeft: 6, paddingRight: 12,
         display: 'flex', alignItems: 'center', gap: 8,
       }}>
-        <button onClick={() => { inputRef.current?.blur(); setTimeout(onBack, 50) }} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px 10px', display: 'flex', alignItems: 'center' }}>
+        <button onClick={() => { inputRef.current?.blur(); onBack() }} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px 10px', display: 'flex', alignItems: 'center' }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
         <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,#FF6B1A,#FFB020)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
@@ -399,11 +372,10 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
                   opacity: msg.id < 0 ? 0.55 : 1,
                   overflow: 'hidden',
                 }}>
-                  {msg.image_url ? (
-                    <img src={msg.image_url} alt="фото" style={{ maxWidth: 220, maxHeight: 280, borderRadius: 14, display: 'block', objectFit: 'cover' }} />
-                  ) : (
-                    <div style={{ fontSize: 15, color: '#fff', lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text || ''}</div>
-                  )}
+                  {msg.image_url
+                    ? <img src={msg.image_url} alt="фото" style={{ maxWidth: 220, maxHeight: 280, borderRadius: 12, display: 'block', objectFit: 'cover' }} />
+                    : <div style={{ fontSize: 15, color: '#fff', lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</div>
+                  }
                 </div>
                 <div style={{ fontSize: 10, color: '#4B5563', marginTop: 3, textAlign: mine ? 'right' : 'left', paddingLeft: mine ? 0 : 4, paddingRight: mine ? 4 : 0 }}>
                   {msg.id < 0 ? '⏳' : timeStr(msg.created_at)}{mine && msg.id > 0 ? ' ✓' : ''}
@@ -421,12 +393,11 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         background: '#0D1018',
         borderTop: '1px solid #1E2334',
         padding: '10px 16px',
-        paddingBottom: 'max(10px,env(safe-area-inset-bottom,10px))',
-        display: 'flex', gap: 10, alignItems: 'center',
+        paddingBottom: inputH > 0 ? 10 : 'max(14px,env(safe-area-inset-bottom,14px))',
+        display: 'flex', gap: 8, alignItems: 'center',
       }}>
-        {/* Photo button */}
-        <button onClick={() => photoRef.current?.click()} style={{ width: 38, height: 38, borderRadius: 12, border: 'none', background: '#1A1F2E', color: '#A0A8BC', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, touchAction: 'manipulation' }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        <button onClick={() => photoRef.current?.click()} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', background: '#1A1F2E', color: '#A0A8BC', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, touchAction: 'manipulation' }}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
         </button>
         <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoSend(f); e.target.value = '' }} />
         <input
@@ -498,24 +469,20 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [activeChat, setActiveChat] = useState<ChatRecord | null>(null)
-  // True while the currently open chat was auto-opened from a listing's
-  // "написати" button (via initialChatId), as opposed to tapping a chat in
-  // this screen's own list. Determines where the back button should go.
-  const [openedViaListing, setOpenedViaListing] = useState(false)
   const openedRef = useRef(false)
+  const openedViaListingRef = useRef(false)
 
   const loadChats = useCallback(async () => {
     if (!user) return
     const data = await getUserChats(user.id)
     setChats(data)
     setLoading(false)
-    // Auto-open chat if initialChatId provided (from DetailScreen)
     if (initialChatId && !openedRef.current) {
       const target = data.find(c => c.id === initialChatId)
       if (target) {
         setActiveChat(target)
-        setOpenedViaListing(true)
         openedRef.current = true
+        openedViaListingRef.current = true
         onInitialChatConsumed?.()
       }
     }
@@ -553,16 +520,15 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
         onBack={() => {
           setActiveChat(null)
           openedRef.current = false
-          window.scrollTo(0, 0)
-          if (openedViaListing && onBackToListing) {
-            setOpenedViaListing(false)
+          if (openedViaListingRef.current && onBackToListing) {
+            openedViaListingRef.current = false
             onBackToListing()
           } else {
-            setOpenedViaListing(false)
+            openedViaListingRef.current = false
             loadChats()
           }
         }}
-        onDeleted={() => { setActiveChat(null); setOpenedViaListing(false); openedRef.current = false; window.scrollTo(0, 0); loadChats() }}
+        onDeleted={() => { setActiveChat(null); openedRef.current = false; openedViaListingRef.current = false; loadChats() }}
       />
     )
   }
