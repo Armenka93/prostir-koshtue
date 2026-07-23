@@ -182,6 +182,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
+  const wrapRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const photoRef = useRef<HTMLInputElement>(null)
@@ -194,6 +195,30 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     if (!el) return
     el.scrollTo({ top: el.scrollHeight, behavior: instant ? ('instant' as any) : 'smooth' })
   }, [])
+
+  // Pin the chat panel to exactly the visible viewport using direct DOM
+  // mutation without React setState — zero render lag vs keyboard animation.
+  // Fixes: header disappearing when keyboard opens, black strip after close.
+  useEffect(() => {
+    const vv = window.visualViewport
+    const el = wrapRef.current
+    if (!vv || !el) return
+    let raf = 0
+    const apply = () => {
+      el.style.top    = vv.offsetTop + 'px'
+      el.style.height = vv.height    + 'px'
+      scrollDown(true)
+    }
+    const onVV = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(apply) }
+    apply()
+    vv.addEventListener('resize', onVV)
+    vv.addEventListener('scroll', onVV)
+    return () => {
+      cancelAnimationFrame(raf)
+      vv.removeEventListener('resize', onVV)
+      vv.removeEventListener('scroll', onVV)
+    }
+  }, [scrollDown])
 
   useEffect(() => {
     getChatMessages(chat.id).then(msgs => {
@@ -290,18 +315,12 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   }
 
   return (
-    <div style={{
-      position: 'absolute', inset: 0, zIndex: 200,
+    <div ref={wrapRef} style={{
+      position: 'fixed', left: 0, right: 0,
+      top: 0, height: '100dvh',
+      zIndex: 200,
       display: 'flex', flexDirection: 'column',
       background: '#0F1117',
-      // On iOS the virtual keyboard does NOT resize the viewport for
-      // position:fixed elements (they stay anchored to the full window
-      // and scroll off screen with the page). position:absolute is
-      // anchored to the nearest positioned ancestor (the app root div
-      // which has overflow:hidden and a fixed size), so it stays put.
-      // We also use the CSS env() for keyboard height as a progressive
-      // enhancement where supported.
-      paddingBottom: 'env(keyboard-inset-height, 0px)',
     }}>
       {/* Header */}
       <div style={{
