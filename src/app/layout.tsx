@@ -20,7 +20,7 @@ export const viewport: Viewport = {
   userScalable: false,
   themeColor: '#FF6B1A',
   viewportFit: 'cover',
-  interactiveWidget: 'resizes-visual',
+  interactiveWidget: 'resizes-content',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
