@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import type { User } from '@/types'
 import {
   getUserChats, getChatMessages, sendMessage, markChatRead,
-  deleteChat, subscribeToMessages, subscribeToUserChats,
+  deleteChat, subscribeToMessages, subscribeToUserChats, uploadChatImage,
   type ChatRecord, type MessageRecord,
 } from '@/lib/chats-db'
 
@@ -13,6 +13,8 @@ interface Props {
   onLogin: () => void
   onRefresh?: () => Promise<void>
   initialChatId?: string
+  onInitialChatConsumed?: () => void
+  onBackToListing?: () => void
 }
 
 function timeStr(iso: string): string {
@@ -202,17 +204,28 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
-    const sync = () => {
+    let raf = 0
+    const apply = () => {
       const el = containerRef.current
       if (!el) return
       el.style.top = vv.offsetTop + 'px'
       el.style.height = vv.height + 'px'
       setTimeout(() => scrollDown(true), 50)
     }
+    // iOS fires resize/scroll multiple times in quick succession while the
+    // keyboard settles (keyboard slide-in, then the QuickType suggestion
+    // bar toggling on/off) — applying every single one causes a visible
+    // double-jump. Coalescing to one application per animation frame fixes
+    // that without adding any perceptible delay.
+    const sync = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(apply)
+    }
     sync()
     vv.addEventListener('resize', sync)
     vv.addEventListener('scroll', sync)
     return () => {
+      cancelAnimationFrame(raf)
       vv.removeEventListener('resize', sync)
       vv.removeEventListener('scroll', sync)
     }
@@ -294,26 +307,31 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 
   const handlePhotoSend = async (file: File) => {
     if (!file || sending) return
+    if (file.size > 10 * 1024 * 1024) { alert('Фото більше за 10 MB'); return }
     setSending(true)
-    // Send photo as a data URL — simple approach that works without extra
-    // storage setup. For large files this could be slow; if that becomes
-    // an issue, switch to Supabase Storage upload (same pattern as listing photos).
-    const reader = new FileReader()
-    reader.onload = async (e) => {
-      const dataUrl = e.target?.result as string
-      const photoMsg: MessageRecord = {
-        id: -Date.now(), chat_id: chat.id,
-        sender_id: user.id, sender_name: user.name,
-        text: `[photo]${dataUrl}`,
-        created_at: new Date().toISOString(), read: false,
-      }
-      setMessages(prev => [...prev, photoMsg])
-      setTimeout(() => scrollDown(true), 30)
-      const saved = await sendMessage(chat.id, user.id, user.name, `[photo]${dataUrl}`, chatRef.current)
-      if (saved) setMessages(prev => prev.map(m => m.id === photoMsg.id ? saved : m))
-      setSending(false)
+    // Instant local preview using an object URL while the real upload runs
+    // in the background.
+    const previewUrl = URL.createObjectURL(file)
+    const tempId = -Date.now()
+    const photoMsg: MessageRecord = {
+      id: tempId, chat_id: chat.id,
+      sender_id: user.id, sender_name: user.name,
+      text: '', image_url: previewUrl,
+      created_at: new Date().toISOString(),
     }
-    reader.readAsDataURL(file)
+    setMessages(prev => [...prev, photoMsg])
+    setTimeout(() => scrollDown(true), 30)
+
+    const url = await uploadChatImage(file, chat.id)
+    if (!url) {
+      setMessages(prev => prev.filter(m => m.id !== tempId))
+      alert('Не вдалося завантажити фото. Спробуйте ще раз.')
+      setSending(false)
+      return
+    }
+    const saved = await sendMessage(chat.id, user.id, user.name, '', chatRef.current, url)
+    setMessages(prev => prev.map(m => m.id === tempId ? (saved || { ...photoMsg, image_url: url }) : m))
+    setSending(false)
   }
 
   return (
@@ -376,15 +394,15 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
                 <div style={{
                   background: mine ? 'linear-gradient(135deg,#FF6B1A,#FF8C3A)' : '#1E2334',
                   borderRadius: mine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                  padding: msg.text.startsWith('[photo]') ? '4px' : '10px 14px',
+                  padding: msg.image_url ? '4px' : '10px 14px',
                   border: mine ? 'none' : '1px solid #2A3045',
                   opacity: msg.id < 0 ? 0.55 : 1,
                   overflow: 'hidden',
                 }}>
-                  {msg.text.startsWith('[photo]') ? (
-                    <img src={msg.text.slice(7)} alt="фото" style={{ maxWidth: 220, maxHeight: 280, borderRadius: 14, display: 'block', objectFit: 'cover' }} />
+                  {msg.image_url ? (
+                    <img src={msg.image_url} alt="фото" style={{ maxWidth: 220, maxHeight: 280, borderRadius: 14, display: 'block', objectFit: 'cover' }} />
                   ) : (
-                    <div style={{ fontSize: 15, color: '#fff', lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</div>
+                    <div style={{ fontSize: 15, color: '#fff', lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text || ''}</div>
                   )}
                 </div>
                 <div style={{ fontSize: 10, color: '#4B5563', marginTop: 3, textAlign: mine ? 'right' : 'left', paddingLeft: mine ? 0 : 4, paddingRight: mine ? 4 : 0 }}>
@@ -476,10 +494,14 @@ export function useChatSoundListener(userId: string | undefined) {
 }
 
 // ── Main ChatsScreen ──────────────────────────────────────────
-export default function ChatsScreen({ user, isGuest, onLogin, initialChatId }: Props) {
+export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onInitialChatConsumed, onBackToListing }: Props) {
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [activeChat, setActiveChat] = useState<ChatRecord | null>(null)
+  // True while the currently open chat was auto-opened from a listing's
+  // "написати" button (via initialChatId), as opposed to tapping a chat in
+  // this screen's own list. Determines where the back button should go.
+  const [openedViaListing, setOpenedViaListing] = useState(false)
   const openedRef = useRef(false)
 
   const loadChats = useCallback(async () => {
@@ -490,9 +512,14 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId }: P
     // Auto-open chat if initialChatId provided (from DetailScreen)
     if (initialChatId && !openedRef.current) {
       const target = data.find(c => c.id === initialChatId)
-      if (target) { setActiveChat(target); openedRef.current = true }
+      if (target) {
+        setActiveChat(target)
+        setOpenedViaListing(true)
+        openedRef.current = true
+        onInitialChatConsumed?.()
+      }
     }
-  }, [user, initialChatId])
+  }, [user, initialChatId, onInitialChatConsumed])
 
   useEffect(() => {
     if (!user) { setLoading(false); return }
@@ -523,8 +550,19 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId }: P
     return (
       <ChatWindow
         chat={activeChat} user={user}
-        onBack={() => { setActiveChat(null); openedRef.current = false; loadChats() }}
-        onDeleted={() => { setActiveChat(null); openedRef.current = false; loadChats() }}
+        onBack={() => {
+          setActiveChat(null)
+          openedRef.current = false
+          window.scrollTo(0, 0)
+          if (openedViaListing && onBackToListing) {
+            setOpenedViaListing(false)
+            onBackToListing()
+          } else {
+            setOpenedViaListing(false)
+            loadChats()
+          }
+        }}
+        onDeleted={() => { setActiveChat(null); setOpenedViaListing(false); openedRef.current = false; window.scrollTo(0, 0); loadChats() }}
       />
     )
   }
