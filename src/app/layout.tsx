@@ -45,16 +45,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div style={{
           display: 'flex',
           justifyContent: 'center',
-          minHeight: '100dvh',
+          // height (not minHeight) so the wrapper shrinks when the keyboard
+          // pushes the viewport down — minHeight would stay tall and leave a
+          // black gap below the content after the keyboard closes.
+          height: '100dvh',
           background: '#060810',
         }}>
           <div style={{
             width: '100%',
             maxWidth: 430,
             background: '#0F1117',
-            minHeight: '100dvh',
+            height: '100dvh',
             position: 'relative',
-            overflow: 'hidden',
+            // overflow:hidden was clipping fixed-position children (chat panel,
+            // bottom nav) in iOS PWA standalone mode — removing it fixes the
+            // black strip that appeared after closing the keyboard.
+            overflow: 'visible',
           }}>
             <ClientOnly>{children}</ClientOnly>
           </div>
