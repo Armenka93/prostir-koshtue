@@ -182,7 +182,6 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [inputH, setInputH] = useState(0)   // keyboard height compensation
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const photoRef = useRef<HTMLInputElement>(null)
@@ -195,23 +194,6 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     if (!el) return
     el.scrollTo({ top: el.scrollHeight, behavior: instant ? ('instant' as any) : 'smooth' })
   }, [])
-
-  // Track visual viewport for keyboard
-  useEffect(() => {
-    const vv = window.visualViewport
-    if (!vv) return
-    const update = () => {
-      const diff = window.innerHeight - vv.height - vv.offsetTop
-      setInputH(Math.max(0, diff))
-      setTimeout(() => scrollDown(true), 80)
-    }
-    vv.addEventListener('resize', update)
-    vv.addEventListener('scroll', update)
-    return () => {
-      vv.removeEventListener('resize', update)
-      vv.removeEventListener('scroll', update)
-    }
-  }, [scrollDown])
 
   useEffect(() => {
     getChatMessages(chat.id).then(msgs => {
@@ -309,13 +291,17 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 200,
+      position: 'absolute', inset: 0, zIndex: 200,
       display: 'flex', flexDirection: 'column',
       background: '#0F1117',
-      // Push content up by keyboard height
-      paddingBottom: inputH,
-      boxSizing: 'border-box' as const,
-      transition: 'padding-bottom .05s',
+      // On iOS the virtual keyboard does NOT resize the viewport for
+      // position:fixed elements (they stay anchored to the full window
+      // and scroll off screen with the page). position:absolute is
+      // anchored to the nearest positioned ancestor (the app root div
+      // which has overflow:hidden and a fixed size), so it stays put.
+      // We also use the CSS env() for keyboard height as a progressive
+      // enhancement where supported.
+      paddingBottom: 'env(keyboard-inset-height, 0px)',
     }}>
       {/* Header */}
       <div style={{
@@ -393,7 +379,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         background: '#0D1018',
         borderTop: '1px solid #1E2334',
         padding: '10px 16px',
-        paddingBottom: inputH > 0 ? 10 : 'max(14px,env(safe-area-inset-bottom,14px))',
+        paddingBottom: 'max(10px,env(safe-area-inset-bottom,10px))',
         display: 'flex', gap: 8, alignItems: 'center',
       }}>
         <button onClick={() => photoRef.current?.click()} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', background: '#1A1F2E', color: '#A0A8BC', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, touchAction: 'manipulation' }}>
