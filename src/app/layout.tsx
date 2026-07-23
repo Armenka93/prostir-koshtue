@@ -57,10 +57,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             background: '#0F1117',
             height: '100dvh',
             position: 'relative',
-            // overflow:hidden was clipping fixed-position children (chat panel,
-            // bottom nav) in iOS PWA standalone mode — removing it fixes the
-            // black strip that appeared after closing the keyboard.
-            overflow: 'visible',
+            // Keeps the page itself from ever becoming scrollable. Without
+            // this, iOS can leave the page scrolled down after a keyboard
+            // interaction, which shows up as a stray dark strip at the
+            // bottom until something else forces a layout reset. Fixed-
+            // position children (chat panel, bottom nav) aren't clipped by
+            // this — that only happens if an ancestor also has a transform,
+            // which none here do.
+            overflow: 'hidden',
           }}>
             <ClientOnly>{children}</ClientOnly>
           </div>

@@ -67,6 +67,7 @@ function AppInner() {
   const [refreshTick, setRefreshTick] = useState(0)
   const [unreadMsgs, setUnreadMsgs] = useState(0)
   const [initialChatId, setInitialChatId] = useState<string | undefined>(undefined)
+  const [chatOriginListing, setChatOriginListing] = useState<ListingData | null>(null)
   const clearInitialChatId = useCallback(() => setInitialChatId(undefined), [])
   const [toastMsg, setToastMsg] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -368,6 +369,7 @@ function AppInner() {
         onLogin={() => { setSelectedListing(null); setPhase('auth') }}
         showToast={showToast}
         onOpenChat={(chatId) => {
+          setChatOriginListing(selectedListing)
           setSelectedListing(null)
           setInitialChatId(chatId)
           goScreen('messages')
@@ -409,6 +411,7 @@ function AppInner() {
             onRefresh={handleRefresh}
             initialChatId={initialChatId}
             onInitialChatConsumed={clearInitialChatId}
+            onBackToListing={chatOriginListing ? () => { setSelectedListing(chatOriginListing); setChatOriginListing(null); scrollTop() } : undefined}
           />
         )}
         {activeScreen === 'favorites' && <FavoritesScreen favorites={favs} allListings={visibleListings} onListing={openListing} onFavorite={toggleFav} onRefresh={handleRefresh} />}
