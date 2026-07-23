@@ -195,41 +195,29 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     el.scrollTo({ top: el.scrollHeight, behavior: instant ? ('instant' as any) : 'smooth' })
   }, [])
 
-  // Lock body scroll while chat is open so iOS cannot scroll the page
-  // when the keyboard opens. The chat container uses position:fixed +
-  // 100dvh which the browser resizes correctly when interactive-widget
-  // is set in the viewport meta. We do NOT move the container with
-  // visualViewport.offsetTop — that was the cause of the jumps.
-  // We use visualViewport only to scroll messages into view after the
-  // keyboard settles.
+  // With interactiveWidget:'resizes-content' the LAYOUT viewport itself
+  // shrinks when the keyboard opens, so our position:fixed/inset:0
+  // container shrinks with it — the header stays put and iOS never
+  // scrolls the page. Therefore we must NOT set body.position='fixed'
+  // (that was what left a black strip after the keyboard closed) and we
+  // must NOT move the container by visualViewport.offsetTop.
+  // We only lock overflow and re-pin the message list on resize.
   useEffect(() => {
     const body = document.body
     const prevOverflow = body.style.overflow
-    const prevPosition = body.style.position
     body.style.overflow = 'hidden'
-    body.style.position = 'fixed'
-    body.style.width = '100%'
-
-    const vv = window.visualViewport
-    if (!vv) return () => {
-      body.style.overflow = prevOverflow
-      body.style.position = prevPosition
-      body.style.width = ''
-    }
 
     let raf = 0
     const onResize = () => {
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => scrollDown(true))
     }
-    vv.addEventListener('resize', onResize)
+    window.addEventListener('resize', onResize)
 
     return () => {
       cancelAnimationFrame(raf)
-      vv.removeEventListener('resize', onResize)
+      window.removeEventListener('resize', onResize)
       body.style.overflow = prevOverflow
-      body.style.position = prevPosition
-      body.style.width = ''
     }
   }, [scrollDown])
 
@@ -414,7 +402,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         background: '#0D1018',
         borderTop: '1px solid #1E2334',
         padding: '10px 16px',
-        paddingBottom: 'env(safe-area-inset-bottom, 10px)',
+        paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
         display: 'flex', gap: 8, alignItems: 'center',
       }}>
         <button onClick={() => photoRef.current?.click()} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', background: '#1A1F2E', color: '#A0A8BC', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, touchAction: 'manipulation' }}>
