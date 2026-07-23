@@ -20,14 +20,6 @@ export const viewport: Viewport = {
   userScalable: false,
   themeColor: '#FF6B1A',
   viewportFit: 'cover',
-  // Without this, mobile browsers (especially in standalone/PWA mode on
-  // iOS) tend to just overlay the keyboard on top of the page without
-  // resizing anything — so fixed-position elements and 100dvh containers
-  // don't actually shrink to the real visible area. This is very likely
-  // the root cause of the header scrolling off-screen while typing and
-  // the leftover blank strip after the keyboard closes: the browser simply
-  // wasn't being told to resize the content for the keyboard at all.
-  interactiveWidget: 'resizes-content',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -45,25 +37,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div style={{
           display: 'flex',
           justifyContent: 'center',
-          // height (not minHeight) so the wrapper shrinks when the keyboard
-          // pushes the viewport down — minHeight would stay tall and leave a
-          // black gap below the content after the keyboard closes.
-          height: '100dvh',
+          minHeight: '100dvh',
           background: '#060810',
         }}>
           <div style={{
             width: '100%',
             maxWidth: 430,
             background: '#0F1117',
-            height: '100dvh',
+            minHeight: '100dvh',
             position: 'relative',
-            // Keeps the page itself from ever becoming scrollable. Without
-            // this, iOS can leave the page scrolled down after a keyboard
-            // interaction, which shows up as a stray dark strip at the
-            // bottom until something else forces a layout reset. Fixed-
-            // position children (chat panel, bottom nav) aren't clipped by
-            // this — that only happens if an ancestor also has a transform,
-            // which none here do.
             overflow: 'hidden',
           }}>
             <ClientOnly>{children}</ClientOnly>
