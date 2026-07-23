@@ -44,6 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             width: '100%',
             maxWidth: 430,
             background: '#0F1117',
+            height: '100dvh',
             minHeight: '100dvh',
             position: 'relative',
             overflow: 'hidden',
