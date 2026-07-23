@@ -182,7 +182,6 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
-  const wrapRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const photoRef = useRef<HTMLInputElement>(null)
@@ -196,66 +195,41 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     el.scrollTo({ top: el.scrollHeight, behavior: instant ? ('instant' as any) : 'smooth' })
   }, [])
 
-  // ROOT CAUSE OF BOTH BUGS:
-  // On iOS Safari/PWA, when an input is focused, the browser scrolls
-  // window upward so the input is above the keyboard. This drags
-  // position:fixed elements (our chat panel) off screen — the header
-  // disappears. When the keyboard closes, window scrolls back but the
-  // browser may not fire a reliable event, leaving a stale gap.
-  //
-  // FIX: lock document.documentElement.scrollTop = 0 every time iOS
-  // tries to scroll it, and sync the container height to visualViewport
-  // so it always fills exactly the visible area. One RAF-coalesced
-  // handler, proper cleanup, no stale state.
+  // Lock body scroll while chat is open so iOS cannot scroll the page
+  // when the keyboard opens. The chat container uses position:fixed +
+  // 100dvh which the browser resizes correctly when interactive-widget
+  // is set in the viewport meta. We do NOT move the container with
+  // visualViewport.offsetTop — that was the cause of the jumps.
+  // We use visualViewport only to scroll messages into view after the
+  // keyboard settles.
   useEffect(() => {
-    const vv = window.visualViewport
-    const el = wrapRef.current
-    if (!vv || !el) return
-
-    // Prevent iOS from scrolling the page when the keyboard opens.
-    // We store and restore the original styles so other screens are
-    // unaffected after the chat unmounts.
-    const html = document.documentElement
     const body = document.body
-    const prevHtmlPos   = html.style.position
-    const prevHtmlOvf   = html.style.overflow
-    const prevBodyOvf   = body.style.overflow
-
-    html.style.position = 'fixed'
-    html.style.overflow = 'hidden'
-    html.style.width    = '100%'
+    const prevOverflow = body.style.overflow
+    const prevPosition = body.style.position
     body.style.overflow = 'hidden'
+    body.style.position = 'fixed'
+    body.style.width = '100%'
+
+    const vv = window.visualViewport
+    if (!vv) return () => {
+      body.style.overflow = prevOverflow
+      body.style.position = prevPosition
+      body.style.width = ''
+    }
 
     let raf = 0
-    const apply = () => {
-      // vv.offsetTop can transiently be non-zero while vv.height is
-      // already back to full window height (iOS settling after keyboard
-      // close). If height ≈ window.innerHeight the keyboard is gone,
-      // so clamp top to 0 to avoid a stale gap at the bottom.
-      const keyboardOpen = vv.height < window.innerHeight - 100
-      el.style.top    = keyboardOpen ? vv.offsetTop + 'px' : '0px'
-      el.style.height = vv.height + 'px'
-    }
-    const onVV = () => {
+    const onResize = () => {
       cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        apply()
-        scrollDown(true)
-      })
+      raf = requestAnimationFrame(() => scrollDown(true))
     }
-    apply()
+    vv.addEventListener('resize', onResize)
 
-    vv.addEventListener('resize', onVV)
-    vv.addEventListener('scroll', onVV)
     return () => {
       cancelAnimationFrame(raf)
-      vv.removeEventListener('resize', onVV)
-      vv.removeEventListener('scroll', onVV)
-      // Restore page scroll behaviour for all other screens.
-      html.style.position = prevHtmlPos
-      html.style.overflow = prevHtmlOvf
-      html.style.width    = ''
-      body.style.overflow = prevBodyOvf
+      vv.removeEventListener('resize', onResize)
+      body.style.overflow = prevOverflow
+      body.style.position = prevPosition
+      body.style.width = ''
     }
   }, [scrollDown])
 
@@ -357,12 +331,12 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   }
 
   return (
-    <div ref={wrapRef} style={{
-      position: 'fixed', left: 0, right: 0,
-      top: 0, height: '100dvh',
+    <div style={{
+      position: 'fixed', inset: 0,
       zIndex: 200,
       display: 'flex', flexDirection: 'column',
       background: '#0F1117',
+      overflow: 'hidden',
     }}>
       {/* Header */}
       <div style={{
@@ -389,7 +363,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 
       {/* Messages — flex:1 scrollable */}
       <div ref={listRef} style={{
-        flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden',
+        flex: '1 1 0', minHeight: 0, overflowY: 'auto', overflowX: 'hidden',
         padding: '12px 16px 8px',
         display: 'flex', flexDirection: 'column', gap: 8,
         WebkitOverflowScrolling: 'touch' as any,
@@ -440,7 +414,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         background: '#0D1018',
         borderTop: '1px solid #1E2334',
         padding: '10px 16px',
-        paddingBottom: 'max(10px, env(safe-area-inset-bottom, 10px))',
+        paddingBottom: 'env(safe-area-inset-bottom, 10px)',
         display: 'flex', gap: 8, alignItems: 'center',
       }}>
         <button onClick={() => photoRef.current?.click()} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', background: '#1A1F2E', color: '#A0A8BC', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, touchAction: 'manipulation' }}>
@@ -547,7 +521,7 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
 
   if (!user) {
     return (
-      <div style={{ paddingBottom: 90 }}>
+      <div style={{ paddingBottom: 16 }}>
         <div style={{ padding: '48px 20px 16px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018', borderBottom: '1px solid #1E2334' }}>
           <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Повідомлення</div>
         </div>
@@ -581,7 +555,7 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
   }
 
   return (
-    <div style={{ paddingBottom: 90 }}>
+    <div style={{ paddingBottom: 16 }}>
       <div style={{ padding: '48px 20px 14px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018', borderBottom: '1px solid #1E2334', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Повідомлення</div>
         {totalUnread > 0 && <span style={{ background: '#EF4444', color: '#fff', fontSize: 12, fontWeight: 700, borderRadius: 20, padding: '3px 12px' }}>{totalUnread} нових</span>}
