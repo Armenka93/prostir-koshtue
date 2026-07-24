@@ -57,6 +57,7 @@ export default function BottomNav({ active, onChange, favCount = 0, unreadMessag
       background: '#0D1018',
       borderTop: '1px solid #1E2334',
       paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      boxShadow: '0 40px 0 40px #0D1018',
       zIndex: 100,
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-around', paddingTop: 10, paddingBottom: 8 }}>

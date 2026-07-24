@@ -15,6 +15,7 @@ interface Props {
   initialChatId?: string
   onInitialChatConsumed?: () => void
   onBackToListing?: () => void
+  onChatOpenChange?: (open: boolean) => void
 }
 
 function timeStr(iso: string): string {
@@ -474,12 +475,23 @@ export function useChatSoundListener(userId: string | undefined) {
 }
 
 // ── Main ChatsScreen ──────────────────────────────────────────
-export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onInitialChatConsumed, onBackToListing }: Props) {
+export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onInitialChatConsumed, onBackToListing, onChatOpenChange }: Props) {
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [activeChat, setActiveChat] = useState<ChatRecord | null>(null)
   const openedRef = useRef(false)
   const openedViaListingRef = useRef(false)
+
+  // Tell the parent whether a single conversation is open, so it can hide
+  // the bottom nav only inside ChatWindow (not on the chat list).
+  useEffect(() => {
+    onChatOpenChange?.(!!activeChat)
+  }, [activeChat, onChatOpenChange])
+
+  // Make sure the parent restores the nav when this screen unmounts.
+  useEffect(() => {
+    return () => { onChatOpenChange?.(false) }
+  }, [onChatOpenChange])
 
   const loadChats = useCallback(async () => {
     if (!user) return
@@ -543,7 +555,7 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
   }
 
   return (
-    <div style={{ paddingBottom: 16 }}>
+    <div style={{ paddingBottom: 90 }}>
       <div style={{ padding: '48px 20px 14px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018', borderBottom: '1px solid #1E2334', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Повідомлення</div>
         {totalUnread > 0 && <span style={{ background: '#EF4444', color: '#fff', fontSize: 12, fontWeight: 700, borderRadius: 20, padding: '3px 12px' }}>{totalUnread} нових</span>}
