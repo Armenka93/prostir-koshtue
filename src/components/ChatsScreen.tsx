@@ -186,6 +186,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const photoRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const chatRef = useRef(chat)
   chatRef.current = chat
   const otherName = chat.buyer_id === user.id ? chat.seller_name : chat.buyer_name
@@ -196,29 +197,62 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     el.scrollTo({ top: el.scrollHeight, behavior: instant ? ('instant' as any) : 'smooth' })
   }, [])
 
-  // With interactiveWidget:'resizes-content' the LAYOUT viewport itself
-  // shrinks when the keyboard opens, so our position:fixed/inset:0
-  // container shrinks with it — the header stays put and iOS never
-  // scrolls the page. Therefore we must NOT set body.position='fixed'
-  // (that was what left a black strip after the keyboard closed) and we
-  // must NOT move the container by visualViewport.offsetTop.
-  // We only lock overflow and re-pin the message list on resize.
+  // iOS quirk: even with body { overflow: hidden }, focusing an input can
+  // still make Safari scroll the whole page to bring it above the keyboard,
+  // which drags our fixed header along with it. The reliable fix is to take
+  // the body fully out of the scrollable flow (position:fixed + a negative
+  // top offset that remembers the scroll position), so there is nothing
+  // left for iOS to scroll. Separately, we size THIS container to the real
+  // visible height (visualViewport.height) so the keyboard never covers the
+  // input, instead of trusting the browser to resize the layout viewport.
   useEffect(() => {
     const body = document.body
-    const prevOverflow = body.style.overflow
+    const scrollY = window.scrollY
+    const prev = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+      overflow: body.style.overflow,
+    }
+    body.style.position = 'fixed'
+    body.style.top = `-${scrollY}px`
+    body.style.left = '0'
+    body.style.right = '0'
+    body.style.width = '100%'
     body.style.overflow = 'hidden'
+
+    const vv = window.visualViewport
+    const applyHeight = () => {
+      if (containerRef.current) {
+        containerRef.current.style.height = vv ? `${vv.height}px` : '100dvh'
+      }
+    }
+    applyHeight()
 
     let raf = 0
     const onResize = () => {
+      applyHeight()
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => scrollDown(true))
     }
+    vv?.addEventListener('resize', onResize)
+    vv?.addEventListener('scroll', onResize)
     window.addEventListener('resize', onResize)
 
     return () => {
       cancelAnimationFrame(raf)
+      vv?.removeEventListener('resize', onResize)
+      vv?.removeEventListener('scroll', onResize)
       window.removeEventListener('resize', onResize)
-      body.style.overflow = prevOverflow
+      body.style.position = prev.position
+      body.style.top = prev.top
+      body.style.left = prev.left
+      body.style.right = prev.right
+      body.style.width = prev.width
+      body.style.overflow = prev.overflow
+      window.scrollTo(0, scrollY)
     }
   }, [scrollDown])
 
@@ -320,8 +354,8 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   }
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0,
+    <div ref={containerRef} style={{
+      position: 'fixed', top: 0, left: 0, right: 0, height: '100dvh',
       zIndex: 200,
       display: 'flex', flexDirection: 'column',
       background: '#0F1117',
