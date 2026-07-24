@@ -39,7 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           display: 'flex',
           justifyContent: 'center',
           minHeight: '100dvh',
-          background: '#060810',
+          background: '#0F1117',
         }}>
           <div style={{
             width: '100%',

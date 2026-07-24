@@ -68,6 +68,9 @@ function AppInner() {
   const [unreadMsgs, setUnreadMsgs] = useState(0)
   const [initialChatId, setInitialChatId] = useState<string | undefined>(undefined)
   const [chatOriginListing, setChatOriginListing] = useState<ListingData | null>(null)
+  // True only while a single conversation (ChatWindow) is open — used to hide
+  // the bottom nav there, but keep it visible on the chat list.
+  const [chatWindowOpen, setChatWindowOpen] = useState(false)
   const clearInitialChatId = useCallback(() => setInitialChatId(undefined), [])
   const [toastMsg, setToastMsg] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -412,13 +415,14 @@ function AppInner() {
             initialChatId={initialChatId}
             onInitialChatConsumed={clearInitialChatId}
             onBackToListing={chatOriginListing ? () => { setSelectedListing(chatOriginListing); setChatOriginListing(null); scrollTop() } : undefined}
+            onChatOpenChange={setChatWindowOpen}
           />
         )}
         {activeScreen === 'favorites' && <FavoritesScreen favorites={favs} allListings={visibleListings} onListing={openListing} onFavorite={toggleFav} onRefresh={handleRefresh} />}
         {activeScreen === 'requests' && <RequestsScreen user={user} isGuest={isGuest && !user} listings={allListings} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onListing={openListing} onDelete={handleArchiveListing} onRestore={handleRestoreListing} onPermanentDelete={handleDeleteListing} onEdit={(l) => { setEditingListing(l); scrollTop() }} onRefresh={handleRefresh} onBack={() => { setActiveScreen('profile'); scrollTop() }} />}
         {activeScreen === 'profile' && <ProfileScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onFeedback={() => { setShowFeedback(true); scrollTop() }} favCount={favs.length} onLogout={handleLogout} showToast={showToast} listings={allListings} onListing={openListing} onDeleteListing={handleDeleteListing} onRefresh={handleRefresh} onMyListings={() => { setActiveScreen('requests'); scrollTop() }} onEditListing={(l) => { setEditingListing(l); scrollTop() }} onArchiveListing={handleArchiveListing} />}
       </div>
-      {activeScreen !== 'messages' && <BottomNav active={activeScreen} onChange={goScreen} favCount={favs.length} unreadMessages={unreadMsgs} />}
+      {!chatWindowOpen && <BottomNav active={activeScreen} onChange={goScreen} favCount={favs.length} unreadMessages={unreadMsgs} />}
       <Toast msg={toastMsg} />
       <InstallPrompt />
     </>
