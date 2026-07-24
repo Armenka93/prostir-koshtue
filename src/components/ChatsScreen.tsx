@@ -224,11 +224,15 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 
     const vv = window.visualViewport
 
+    let raf = 0
     const sync = () => {
-      const el = containerRef.current
-      if (!el || !vv) return
-      el.style.top    = `${vv.offsetTop}px`
-      el.style.height = `${vv.height}px`
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        const el = containerRef.current
+        if (!el || !vv) return
+        el.style.top    = `${vv.offsetTop}px`
+        el.style.height = `${vv.height}px`
+      })
     }
 
     sync()
@@ -237,6 +241,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     vv?.addEventListener('scroll', sync)
 
     return () => {
+      cancelAnimationFrame(raf)
       vv?.removeEventListener('resize', sync)
       vv?.removeEventListener('scroll', sync)
       body.style.position = savedPos
@@ -351,6 +356,8 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
       display: 'flex', flexDirection: 'column',
       background: '#0F1117',
       overflow: 'hidden',
+      transition: 'top 0.25s ease, height 0.25s ease',
+      willChange: 'top, height',
     }}>
       {/* Header */}
       <div style={{
