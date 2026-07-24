@@ -196,19 +196,55 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
     el.scrollTo({ top: el.scrollHeight, behavior: instant ? ('instant' as any) : 'smooth' })
   }, [])
 
-  // With interactiveWidget:'resizes-content' the browser already shrinks
-  // the layout viewport (and therefore our fixed/inset:0 container) when
-  // the keyboard appears. We must NOT also fix the body position — that
-  // conflicts with resizes-content and produces a racing frame where the
-  // header jumps. The only thing we do here is prevent the document from
-  // scrolling while the chat is open (so iOS has nothing to "scroll to
-  // show the focused input"). The container height is handled entirely by
-  // the browser — no JS needed.
+  // ── iOS PWA keyboard fix ─────────────────────────────────────
+  // In a PWA (WKWebView) interactiveWidget:'resizes-content' is ignored by
+  // Apple. When the keyboard opens iOS shifts the visual viewport UP by
+  // ~keyboardHeight pixels, so position:fixed elements anchored to top:0
+  // of the LAYOUT viewport disappear above the screen.
+  //
+  // The only reliable solution for WKWebView is to:
+  //  1. Lock body.position = fixed so iOS has nothing to scroll
+  //  2. Read visualViewport.offsetTop + .height each frame and apply them
+  //     as top / height on our container so it tracks the visible area
+  //
+  const containerRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     const body = document.body
-    const prev = body.style.overflow
+    const savedScroll = window.scrollY
+    const savedPos   = body.style.position
+    const savedTop   = body.style.top
+    const savedWidth = body.style.width
+    const savedOvf   = body.style.overflow
+
+    body.style.position = 'fixed'
+    body.style.top      = '0'
+    body.style.width    = '100%'
     body.style.overflow = 'hidden'
-    return () => { body.style.overflow = prev }
+
+    const vv = window.visualViewport
+
+    const sync = () => {
+      const el = containerRef.current
+      if (!el || !vv) return
+      el.style.top    = `${vv.offsetTop}px`
+      el.style.height = `${vv.height}px`
+    }
+
+    sync()
+
+    vv?.addEventListener('resize', sync)
+    vv?.addEventListener('scroll', sync)
+
+    return () => {
+      vv?.removeEventListener('resize', sync)
+      vv?.removeEventListener('scroll', sync)
+      body.style.position = savedPos
+      body.style.top      = savedTop
+      body.style.width    = savedWidth
+      body.style.overflow = savedOvf
+      window.scrollTo(0, savedScroll)
+    }
   }, [])
 
   useEffect(() => {
@@ -309,8 +345,8 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   }
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0,
+    <div ref={containerRef} style={{
+      position: 'fixed', top: 0, left: 0, right: 0, height: '100dvh',
       zIndex: 200,
       display: 'flex', flexDirection: 'column',
       background: '#0F1117',
