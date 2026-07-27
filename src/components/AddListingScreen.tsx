@@ -18,6 +18,9 @@ interface Props {
 
 const FALLBACK_IMGS: string[] = []
 
+// Strip any HTML tags from user-supplied text to prevent XSS display issues
+const sanitize = (s: string) => s.replace(/<[^>]*>/g, '').trim()
+
 export default function AddListingScreen({ user, onBack, onCreated, onGoProfile, editListing, onUpdated }: Props) {
   const isEdit = !!editListing
   const [title, setTitle] = useState(editListing?.title || '')
@@ -91,21 +94,21 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
     const images = uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : ['/no-photo.png']
 
     const commonFields = {
-      title: title.trim(),
+      title: sanitize(title),
       type,
       price: parseInt(price),
       area: parseInt(area),
       floor: floor ? parseInt(floor) : null,
       totalFloors: totalFloors ? parseInt(totalFloors) : null,
       district,
-      address: address.trim(),
+      address: sanitize(address),
       city: 'Одеса',
       condition,
       parking,
       separateEntrance: entrance,
-      description: description.trim() || null,
+      description: description.trim() ? sanitize(description) : null,
       images,
-      features: features ? features.split(',').map(f => f.trim()).filter(Boolean) : [],
+      features: features ? features.split(',').map(f => sanitize(f)).filter(Boolean) : [],
     }
 
     if (isEdit && editListing) {
