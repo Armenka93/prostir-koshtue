@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500">
+  <rect width="800" height="500" fill="#1A1F2E"/>
+  <rect x="320" y="170" width="160" height="120" rx="12" fill="none" stroke="#2E3650" stroke-width="3"/>
+  <circle cx="355" cy="205" r="14" fill="none" stroke="#2E3650" stroke-width="3"/>
+  <polyline points="320,270 365,230 400,258 440,215 480,270" fill="none" stroke="#2E3650" stroke-width="3" stroke-linejoin="round"/>
+  <text x="400" y="330" font-family="Inter,system-ui,sans-serif" font-size="18" fill="#3A4260" text-anchor="middle">Фото відсутнє</text>
+</svg>
