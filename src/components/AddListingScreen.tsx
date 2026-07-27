@@ -16,12 +16,7 @@ interface Props {
   onUpdated?: (id: number, data: Partial<ListingData>) => void
 }
 
-const FALLBACK_IMGS = [
-  'https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&q=80',
-  'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800&q=80',
-  'https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=800&q=80',
-  'https://images.unsplash.com/photo-1486325212027-8081e485255e?w=800&q=80',
-]
+const FALLBACK_IMGS: string[] = []
 
 export default function AddListingScreen({ user, onBack, onCreated, onGoProfile, editListing, onUpdated }: Props) {
   const isEdit = !!editListing
@@ -93,7 +88,7 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
     setLoading(true)
 
     const uploadedPhotoUrls = photos.map(p => p.uploadedUrl).filter((u): u is string => !!u)
-    const images = uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : [FALLBACK_IMGS[Math.floor(Math.random() * FALLBACK_IMGS.length)]]
+    const images = uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : ['/no-photo.svg']
 
     const commonFields = {
       title: title.trim(),

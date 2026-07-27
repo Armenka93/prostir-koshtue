@@ -44,7 +44,7 @@ export default function FavoritesScreen({ favorites, allListings, onListing, onF
         ) : (
           saved.map(listing => {
             const tc = TYPE_COLORS[listing.type] || '#FF6B1A'
-            const img = listing.images?.[0] || 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&q=80'
+            const img = listing.images?.[0] || '/no-photo.svg'
             return (
               <div key={listing.id} style={{ background: '#1A1F2E', borderRadius: 16, overflow: 'hidden', marginBottom: 14, border: '1px solid #2A3045', position: 'relative' }}>
                 <img src={img} alt={listing.title} style={{ width: '100%', height: 160, objectFit: 'cover' }} loading="lazy" />
