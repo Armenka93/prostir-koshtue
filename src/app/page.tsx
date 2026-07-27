@@ -282,7 +282,7 @@ function AppInner() {
       parking: data.parking || false,
       separateEntrance: data.separateEntrance || false,
       description: data.description || null,
-      images: data.images?.length ? data.images : ['https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&q=80'],
+      images: data.images?.length ? data.images : ['/no-photo.svg'],
       features: data.features || [],
     }
 
