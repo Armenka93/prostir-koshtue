@@ -56,7 +56,7 @@ export default function DetailScreen({
   const data = listing
   const tc = TYPE_COLORS[data.type] || '#FF6B1A'
   const similar = allListings.filter(l => l.id !== listing.id && l.type === listing.type).slice(0, 3)
-  const images = data.images?.length ? data.images : ['/no-photo.svg']
+  const images = data.images?.length ? data.images : ['/no-photo.png']
   const isLoggedIn = !!user
   const hasPhone = !!data.ownerPhone
   const isOwn = !!user && (data.userId === user.id || data.userId === 'me')
@@ -316,7 +316,7 @@ export default function DetailScreen({
             <div style={{ display: 'flex', gap: 10, overflowX: 'auto', scrollbarWidth: 'none' }}>
               {similar.map(l => (
                 <div key={l.id} onClick={() => onSimilar(l)} style={{ flexShrink: 0, width: 160, background: '#1A1F2E', borderRadius: 12, overflow: 'hidden', cursor: 'pointer', border: '1px solid #2A3045' }}>
-                  <img src={l.images?.[0] || '/no-photo.svg'} alt={l.title} style={{ width: '100%', height: 90, objectFit: 'cover' }} />
+                  <img src={l.images?.[0] || '/no-photo.png'} alt={l.title} style={{ width: '100%', height: 90, objectFit: 'cover' }} />
                   <div style={{ padding: 8 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 4, lineHeight: 1.3 }}>{l.title.slice(0, 28)}…</div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#FF6B1A' }}>{l.price.toLocaleString('uk-UA')} ₴</div>

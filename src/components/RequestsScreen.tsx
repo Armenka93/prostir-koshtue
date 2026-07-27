@@ -119,7 +119,7 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
           )
         ) : (
           list.map(listing => {
-            const img = listing.images?.[0] || '/no-photo.svg'
+            const img = listing.images?.[0] || '/no-photo.png'
             const isArchived = tab === 'archive'
             return (
               <div key={listing.id} style={{ background: '#1A1F2E', borderRadius: 16, overflow: 'hidden', marginBottom: 14, border: '1px solid #2A3045', opacity: isArchived ? 0.75 : 1 }}>

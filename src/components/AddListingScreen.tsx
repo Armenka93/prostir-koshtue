@@ -88,7 +88,7 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
     setLoading(true)
 
     const uploadedPhotoUrls = photos.map(p => p.uploadedUrl).filter((u): u is string => !!u)
-    const images = uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : ['/no-photo.svg']
+    const images = uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : ['/no-photo.png']
 
     const commonFields = {
       title: title.trim(),

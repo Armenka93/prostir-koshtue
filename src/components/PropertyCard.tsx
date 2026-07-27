@@ -29,7 +29,7 @@ function FavBtn({ id, isFav, onFav, size = 18, style }: { id: number; isFav: boo
 
 export default function PropertyCard({ listing: l, onPress, onFavorite, isFavorite, layout = 'horizontal' }: Props) {
   const tc = TYPE_COLORS[l.type] || '#FF6B1A'
-  const img = l.images?.[0] || '/no-photo.svg'
+  const img = l.images?.[0] || '/no-photo.png'
 
   if (layout === 'vertical') {
     return (

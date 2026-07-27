@@ -308,7 +308,7 @@ function AdminDashboard({ propListings, onDeleteListing, registerReload }: { pro
           {listings.length === 0 && <div style={{ textAlign:'center', color:'#6B7280', fontSize:13, padding:'20px 0' }}>Немає оголошень</div>}
           {listings.map(l => (
             <div key={l.id} style={{ background:'#0F1117', borderRadius:10, padding:'8px 10px', display:'flex', alignItems:'center', gap:8, border:'1px solid #2A3045' }}>
-              <img src={l.images?.[0] || '/no-photo.svg'} alt="" style={{ width:38, height:38, borderRadius:8, objectFit:'cover', flexShrink:0 }} />
+              <img src={l.images?.[0] || '/no-photo.png'} alt="" style={{ width:38, height:38, borderRadius:8, objectFit:'cover', flexShrink:0 }} />
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontSize:12, fontWeight:600, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{l.title}</div>
                 <div style={{ fontSize:11, color:'#6B7280' }}>{l.ownerName || l.userId} • {l.price?.toLocaleString('uk-UA')} ₴</div>
@@ -465,7 +465,7 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
               {myListings.slice(0,3).map((l,i) => (
                 <div key={l.id} style={{ display:'flex', gap:12, padding:'12px 16px', borderBottom:i<Math.min(myListings.length,3)-1?'1px solid #2A3045':'none' }}>
                   <div onClick={() => onListing?.(l)} style={{ display:'flex', gap:12, flex:1, minWidth:0, cursor:'pointer' }}>
-                    <img src={l.images?.[0] || '/no-photo.svg'} alt="" style={{ width:50, height:50, borderRadius:10, objectFit:'cover', flexShrink:0 }} />
+                    <img src={l.images?.[0] || '/no-photo.png'} alt="" style={{ width:50, height:50, borderRadius:10, objectFit:'cover', flexShrink:0 }} />
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:13, fontWeight:600, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{l.title}</div>
                       <div style={{ fontSize:12, color:'#A0A8BC', marginTop:2 }}>{l.district} • {l.area} м²</div>
