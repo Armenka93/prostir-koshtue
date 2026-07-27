@@ -72,6 +72,7 @@ function AppInner() {
   // the bottom nav there, but keep it visible on the chat list.
   const [chatWindowOpen, setChatWindowOpen] = useState(false)
   const savedScrollY = useRef(0)
+  const savedShowAll = useRef<{ title: string; items: ListingData[] } | null>(null)
   const clearInitialChatId = useCallback(() => setInitialChatId(undefined), [])
   const [toastMsg, setToastMsg] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -259,6 +260,7 @@ function AppInner() {
 
   const openListing = (l: ListingData) => {
     savedScrollY.current = window.scrollY
+    savedShowAll.current = showAll  // remember if we came from AllListingsScreen
     setSelectedListing(l)
     setShowAll(null)
     scrollTop()
@@ -367,8 +369,17 @@ function AppInner() {
         isFavorite={favs.includes(selectedListing.id)}
         onBack={() => {
           setSelectedListing(null)
-          const y = savedScrollY.current
-          requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior }))
+          const prev = savedShowAll.current
+          savedShowAll.current = null
+          if (prev) {
+            // came from AllListingsScreen — restore it, then scroll back
+            setShowAll(prev)
+            const y = savedScrollY.current
+            requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior }))
+          } else {
+            const y = savedScrollY.current
+            requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior }))
+          }
         }}
         onFavorite={toggleFav}
         onSimilar={openListing}
@@ -389,7 +400,7 @@ function AppInner() {
     </>
   )
   if (showAll) return (
-    <><AllListingsScreen title={showAll.title} listings={showAll.items} allListings={visibleListings} favorites={favs} onListing={openListing} onFavorite={toggleFav} onBack={() => { setShowAll(null); scrollTop() }} /><Toast msg={toastMsg} /></>
+    <><AllListingsScreen title={showAll.title} listings={showAll.items} allListings={visibleListings} favorites={favs} onListing={openListing} onFavorite={toggleFav} onBack={() => { const y = savedScrollY.current; setShowAll(null); requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior })) }} /><Toast msg={toastMsg} /></>
   )
 
   return (
@@ -409,7 +420,7 @@ function AppInner() {
             loading={!dbLoaded}
             onProfile={() => goScreen('profile')}
             onRefresh={handleRefresh}
-            onShowAll={(title, items) => { setShowAll({ title, items }); scrollTop() }}
+            onShowAll={(title, items) => { savedScrollY.current = window.scrollY; setShowAll({ title, items }); scrollTop() }}
           />
         )}
         {activeScreen === 'messages' && (
