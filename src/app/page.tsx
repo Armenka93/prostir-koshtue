@@ -282,7 +282,7 @@ function AppInner() {
       parking: data.parking || false,
       separateEntrance: data.separateEntrance || false,
       description: data.description || null,
-      images: data.images?.length ? data.images : ['/no-photo.svg'],
+      images: data.images?.length ? data.images : ['/no-photo.png'],
       features: data.features || [],
     }
 
