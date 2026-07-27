@@ -351,7 +351,9 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 
   return (
     <div ref={containerRef} style={{
-      position: 'fixed', top: 0, left: 0, right: 0, height: '100dvh',
+      position: 'fixed', top: 0, left: '50%', height: '100dvh',
+      transform: 'translateX(-50%)',
+      width: '100%', maxWidth: 430,
       zIndex: 200,
       display: 'flex', flexDirection: 'column',
       background: '#0F1117',
