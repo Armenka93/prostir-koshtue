@@ -71,6 +71,7 @@ function AppInner() {
   // True only while a single conversation (ChatWindow) is open — used to hide
   // the bottom nav there, but keep it visible on the chat list.
   const [chatWindowOpen, setChatWindowOpen] = useState(false)
+  const savedScrollY = useRef(0)
   const clearInitialChatId = useCallback(() => setInitialChatId(undefined), [])
   const [toastMsg, setToastMsg] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -257,6 +258,7 @@ function AppInner() {
   }
 
   const openListing = (l: ListingData) => {
+    savedScrollY.current = window.scrollY
     setSelectedListing(l)
     setShowAll(null)
     scrollTop()
@@ -363,7 +365,11 @@ function AppInner() {
       <DetailScreen
         listing={selectedListing}
         isFavorite={favs.includes(selectedListing.id)}
-        onBack={() => { setSelectedListing(null); scrollTop() }}
+        onBack={() => {
+          setSelectedListing(null)
+          const y = savedScrollY.current
+          requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior }))
+        }}
         onFavorite={toggleFav}
         onSimilar={openListing}
         allListings={visibleListings}
