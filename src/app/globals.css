@@ -48,6 +48,7 @@ input, select, textarea, button {
   -webkit-appearance: none;
   appearance: none;
 }
+input::placeholder, textarea::placeholder { color: #3D4460; opacity: 1; }
 input:focus, select:focus, textarea:focus {
   outline: 2px solid rgba(255,107,26,0.5);
   outline-offset: 0;
