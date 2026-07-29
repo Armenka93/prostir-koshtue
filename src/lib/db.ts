@@ -303,7 +303,8 @@ export async function dbMarkFeedbackRead(id: number): Promise<boolean> {
 
 export function subscribeToListings(
   onInsert: (l: ListingData) => void,
-  onDelete?: (id: number) => void
+  onDelete?: (id: number) => void,
+  onUpdate?: (l: ListingData) => void
 ) {
   console.log('[realtime] subscribing to listings...')
   const channel = supabase
@@ -313,6 +314,13 @@ export function subscribeToListings(
       (payload) => {
         console.log('[realtime] INSERT listing:', payload.new?.id)
         onInsert(rowToListing(payload.new))
+      }
+    )
+    .on('postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'listings' },
+      (payload) => {
+        console.log('[realtime] UPDATE listing:', payload.new?.id, 'likes:', payload.new?.likes)
+        onUpdate?.(rowToListing(payload.new))
       }
     )
     .on('postgres_changes',
