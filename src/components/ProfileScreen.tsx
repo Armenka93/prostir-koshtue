@@ -11,6 +11,7 @@ import { saveSession } from '@/lib/storage'
 import { changePassword, changeEmail } from '@/lib/auth'
 import { usePTR } from '@/hooks/usePTR'
 import PTRIndicator from './PTRIndicator'
+import ConfirmModal from '@/components/ConfirmModal'
 
 export const ADMIN_EMAIL = 'armen.saakyan9393@gmail.com'
 function isAdmin(user: User | null | undefined): boolean {
@@ -239,6 +240,7 @@ function AdminDashboard({ propListings, onDeleteListing, registerReload }: { pro
   const [feedbacks, setFeedbacks] = useState<DbFeedback[]>([])
   const [listings, setListings] = useState<ListingData[]>([])
   const [loading, setLoading] = useState(true)
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null)
 
   const loadAll = async () => {
     const [accs, fbs, lsts] = await Promise.all([dbGetAccounts(), dbGetFeedbacks(), dbGetListings()])
@@ -313,7 +315,7 @@ function AdminDashboard({ propListings, onDeleteListing, registerReload }: { pro
                 <div style={{ fontSize:12, fontWeight:600, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{l.title}</div>
                 <div style={{ fontSize:11, color:'#6B7280' }}>{l.ownerName || l.userId} • {l.price?.toLocaleString('uk-UA')} ₴</div>
               </div>
-              {onDeleteListing && <button onClick={() => { if (confirm('Видалити?')) onDeleteListing(l.id) }} style={{ background:'#EF444418', border:'none', borderRadius:8, padding:'6px 8px', color:'#EF4444', cursor:'pointer', display:'flex', alignItems:'center', flexShrink:0 }}>{IC.trash}</button>}
+              {onDeleteListing && <button onClick={() => setPendingDeleteId(l.id)} style={{ background:'#EF444418', border:'none', borderRadius:8, padding:'6px 8px', color:'#EF4444', cursor:'pointer', display:'flex', alignItems:'center', flexShrink:0 }}>{IC.trash}</button>}
             </div>
           ))}
         </div>
@@ -350,17 +352,28 @@ function AdminDashboard({ propListings, onDeleteListing, registerReload }: { pro
           ))}
         </div>
       )}
+
+      {pendingDeleteId !== null && (
+        <ConfirmModal
+          title="Видалити оголошення?"
+          message="Оголошення буде видалено назавжди. Це не можна скасувати."
+          confirmLabel="Видалити"
+          cancelLabel="Скасувати"
+          danger
+          onConfirm={() => { onDeleteListing?.(pendingDeleteId); setPendingDeleteId(null) }}
+          onCancel={() => setPendingDeleteId(null)}
+        />
+      )}
     </div>
   )
 }
-
-// ── MAIN ─────────────────────────────────────────────────────
 export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings=[], onListing, onDeleteListing, onRefresh, onMyListings, onEditListing, onArchiveListing }: Props) {
   const [notif, setNotif] = useState(true)
   const [showEdit, setShowEdit] = useState(false)
   const [showPrivacy, setShowPrivacy] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
   const [currentUser, setCurrentUser] = useState(user)
+  const [pendingArchiveId, setPendingArchiveId] = useState<number | null>(null)
   const adminReloadRef = useRef<(() => void) | null>(null)
   const ptr = usePTR(async () => {
     await onRefresh?.()
@@ -479,7 +492,7 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
                         <button onClick={() => onEditListing(l)} style={{ background:'#FFB02018', border:'none', borderRadius:8, padding:'5px 7px', color:'#FFB020', cursor:'pointer', display:'flex', alignItems:'center' }}>{IC.edit}</button>
                       )}
                       {onArchiveListing && (
-                        <button onClick={() => { if (confirm('Перенести в архів? Оголошення зникне з пошуку, але ви зможете відновити його пізніше.')) onArchiveListing(l.id) }} style={{ background:'#EF444418', border:'none', borderRadius:8, padding:'5px 7px', color:'#EF4444', cursor:'pointer', display:'flex', alignItems:'center' }}>{IC.trash}</button>
+                        <button onClick={() => setPendingArchiveId(l.id)} style={{ background:'#EF444418', border:'none', borderRadius:8, padding:'5px 7px', color:'#EF4444', cursor:'pointer', display:'flex', alignItems:'center' }}>{IC.trash}</button>
                       )}
                     </div>
                   </div>
@@ -515,6 +528,18 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
       )}
       {showPrivacy && <PrivacyModal onClose={() => setShowPrivacy(false)} onFeedback={onFeedback} />}
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} onFeedback={onFeedback} />}
+
+      {pendingArchiveId !== null && (
+        <ConfirmModal
+          title="Перенести в архів?"
+          message="Оголошення зникне з пошуку, але ви зможете відновити його пізніше."
+          confirmLabel="Архівувати"
+          cancelLabel="Скасувати"
+          danger
+          onConfirm={() => { onArchiveListing?.(pendingArchiveId); setPendingArchiveId(null) }}
+          onCancel={() => setPendingArchiveId(null)}
+        />
+      )}
     </div>
   )
 }

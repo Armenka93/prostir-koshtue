@@ -6,6 +6,7 @@ import {
   deleteChat, subscribeToMessages, subscribeToUserChats, uploadChatImage,
   type ChatRecord, type MessageRecord,
 } from '@/lib/chats-db'
+import ConfirmModal from '@/components/ConfirmModal'
 
 interface Props {
   user: User | null
@@ -183,6 +184,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const photoRef = useRef<HTMLInputElement>(null)
@@ -350,6 +352,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   }
 
   return (
+    <>
     <div ref={containerRef} style={{
       position: 'fixed', top: 0, left: '50%', height: '100dvh',
       transform: 'translateX(-50%)',
@@ -378,7 +381,7 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
           <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{otherName}</div>
           <div style={{ fontSize: 11, color: '#FF6B1A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📍 {chat.listing_title}</div>
         </div>
-        <button onClick={() => { if (confirm('Видалити чат?')) { deleteChat(chat.id); onDeleted() } }}
+        <button onClick={() => setShowDeleteConfirm(true)}
           style={{ background: 'none', border: 'none', color: '#6B7280', cursor: 'pointer', padding: '8px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
         </button>
@@ -478,6 +481,19 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
         </button>
       </div>
     </div>
+
+    {showDeleteConfirm && (
+      <ConfirmModal
+        title="Видалити чат?"
+        message="Переписку буде видалено для вас. Це не можна скасувати."
+        confirmLabel="Видалити"
+        cancelLabel="Скасувати"
+        danger
+        onConfirm={() => { setShowDeleteConfirm(false); deleteChat(chat.id); onDeleted() }}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
+    )}
+  </>
   )
 }
 
@@ -513,6 +529,7 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [activeChat, setActiveChat] = useState<ChatRecord | null>(null)
+  const [pendingDeleteChat, setPendingDeleteChat] = useState<ChatRecord | null>(null)
   const openedRef = useRef(false)
   const openedViaListingRef = useRef(false)
 
@@ -616,12 +633,27 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
           key={chat.id} chat={chat} userId={user.id}
           onOpen={() => setActiveChat(chat)}
           onDelete={async () => {
-            if (!confirm('Видалити чат?')) return
-            await deleteChat(chat.id)
-            loadChats()
+            setPendingDeleteChat(chat)
           }}
         />
       ))}
+
+      {pendingDeleteChat && (
+        <ConfirmModal
+          title="Видалити чат?"
+          message="Переписку буде видалено для вас. Це не можна скасувати."
+          confirmLabel="Видалити"
+          cancelLabel="Скасувати"
+          danger
+          onConfirm={async () => {
+            const id = pendingDeleteChat.id
+            setPendingDeleteChat(null)
+            await deleteChat(id)
+            loadChats()
+          }}
+          onCancel={() => setPendingDeleteChat(null)}
+        />
+      )}
     </div>
   )
 }
