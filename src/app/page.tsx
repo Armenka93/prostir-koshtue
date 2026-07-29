@@ -160,6 +160,10 @@ function AppInner() {
       (deletedId) => {
         setDbListings(prev => prev.filter(l => l.id !== deletedId))
         setRefreshTick(t => t + 1)
+      },
+      (updatedListing) => {
+        // Merge updated fields (likes, views, etc.) into the existing entry
+        setDbListings(prev => prev.map(l => l.id === updatedListing.id ? { ...l, ...updatedListing } : l))
       }
     )
     return () => { channel.unsubscribe() }
