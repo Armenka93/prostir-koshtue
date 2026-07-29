@@ -600,7 +600,13 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
             loadChats()
           }
         }}
-        onDeleted={() => { setActiveChat(null); openedRef.current = false; openedViaListingRef.current = false; loadChats() }}
+        onDeleted={() => {
+          // Remove from local list immediately — no waiting for server round-trip
+          setChats(prev => prev.filter(c => c.id !== activeChat!.id))
+          setActiveChat(null)
+          openedRef.current = false
+          openedViaListingRef.current = false
+        }}
       />
     )
   }
@@ -647,9 +653,10 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
           danger
           onConfirm={async () => {
             const id = pendingDeleteChat.id
+            // Remove instantly from local state — UI updates before server responds
+            setChats(prev => prev.filter(c => c.id !== id))
             setPendingDeleteChat(null)
             await deleteChat(id)
-            loadChats()
           }}
           onCancel={() => setPendingDeleteChat(null)}
         />
