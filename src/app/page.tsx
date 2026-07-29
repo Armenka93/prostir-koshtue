@@ -394,9 +394,13 @@ function AppInner() {
         showToast={showToast}
         onOpenChat={(chat) => {
           setChatOriginListing(selectedListing)
-          setSelectedListing(null)
           setInitialChat(chat)
-          goScreen('messages')
+          // Clear navigation stack first, then switch screen — all in one batch
+          setSelectedListing(null)
+          setShowAll(null)
+          savedShowAll.current = null
+          setActiveScreen('messages')
+          scrollTop()
         }}
         onEdit={(l) => { setSelectedListing(null); setEditingListing(l); scrollTop() }}
       />
