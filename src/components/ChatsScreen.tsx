@@ -560,6 +560,20 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
     }
   }, [user, initialChatId, onInitialChatConsumed])
 
+  // If initialChatId arrives while chats are already loaded (e.g. navigating
+  // from a listing while the chat list is cached), open it instantly without
+  // waiting for another loadChats() round-trip.
+  useEffect(() => {
+    if (!initialChatId || openedRef.current) return
+    const target = chats.find(c => c.id === initialChatId)
+    if (target) {
+      setActiveChat(target)
+      openedRef.current = true
+      openedViaListingRef.current = true
+      onInitialChatConsumed?.()
+    }
+  }, [initialChatId, chats, onInitialChatConsumed])
+
   useEffect(() => {
     if (!user) { setLoading(false); return }
     loadChats()
@@ -569,6 +583,12 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
 
   const totalUnread = chats.reduce((s, c) =>
     s + (c.buyer_id === user?.id ? (c.unread_buyer || 0) : (c.unread_seller || 0)), 0)
+
+  // While loading and we know we need to open a specific chat — show a blank
+  // dark screen instead of the chat list so there's no flash of wrong content.
+  if (loading && initialChatId && !activeChat) {
+    return <div style={{ minHeight: '100dvh', background: '#0F1117' }} />
+  }
 
   if (!user) {
     return (
