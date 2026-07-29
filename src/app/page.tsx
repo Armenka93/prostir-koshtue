@@ -10,7 +10,7 @@ import {
   subscribeToListings, isSupabaseReady,
   dbGetUserFavorites, dbAddFavorite, dbRemoveFavorite,
 } from '@/lib/db'
-import { getUnreadCount } from '@/lib/chats-db'
+import { getUnreadCount, type ChatRecord } from '@/lib/chats-db'
 import { useChatSoundListener } from '@/components/ChatsScreen'
 
 import SplashScreen from '@/components/SplashScreen'
@@ -66,14 +66,14 @@ function AppInner() {
   const [favs, setFavs] = useState<number[]>([])
   const [refreshTick, setRefreshTick] = useState(0)
   const [unreadMsgs, setUnreadMsgs] = useState(0)
-  const [initialChatId, setInitialChatId] = useState<string | undefined>(undefined)
+  const [initialChat, setInitialChat] = useState<ChatRecord | null>(null)
   const [chatOriginListing, setChatOriginListing] = useState<ListingData | null>(null)
   // True only while a single conversation (ChatWindow) is open — used to hide
   // the bottom nav there, but keep it visible on the chat list.
   const [chatWindowOpen, setChatWindowOpen] = useState(false)
   const savedScrollY = useRef(0)
   const savedShowAll = useRef<{ title: string; items: ListingData[] } | null>(null)
-  const clearInitialChatId = useCallback(() => setInitialChatId(undefined), [])
+  const clearInitialChat = useCallback(() => setInitialChat(null), [])
   const [toastMsg, setToastMsg] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
 
@@ -392,10 +392,10 @@ function AppInner() {
         isGuest={isGuest && !user}
         onLogin={() => { setSelectedListing(null); setPhase('auth') }}
         showToast={showToast}
-        onOpenChat={(chatId) => {
+        onOpenChat={(chat) => {
           setChatOriginListing(selectedListing)
           setSelectedListing(null)
-          setInitialChatId(chatId)
+          setInitialChat(chat)
           goScreen('messages')
         }}
         onEdit={(l) => { setSelectedListing(null); setEditingListing(l); scrollTop() }}
@@ -433,8 +433,8 @@ function AppInner() {
             isGuest={isGuest && !user}
             onLogin={() => setPhase('auth')}
             onRefresh={handleRefresh}
-            initialChatId={initialChatId}
-            onInitialChatConsumed={clearInitialChatId}
+            initialChat={initialChat}
+            onInitialChatConsumed={clearInitialChat}
             onBackToListing={chatOriginListing ? () => { setSelectedListing(chatOriginListing); setChatOriginListing(null); scrollTop() } : undefined}
             onChatOpenChange={setChatWindowOpen}
           />
