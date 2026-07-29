@@ -2,7 +2,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { ListingData, User } from '@/types'
 import { TYPE_COLORS, maskPhone, formatPhone, telHref } from '@/types'
-import { getOrCreateChat } from '@/lib/chats-db'
+import { getOrCreateChat, type ChatRecord } from '@/lib/chats-db'
 import { dbIncrementViews, dbGetListingCounters } from '@/lib/db'
 import { isMockListingId } from '@/lib/mockData'
 import { hasViewedRecently, markViewed } from '@/lib/storage'
@@ -18,7 +18,7 @@ interface Props {
   onLogin?: () => void
   user?: User | null
   showToast: (m: string) => void
-  onOpenChat?: (chatId: string) => void
+  onOpenChat?: (chat: ChatRecord) => void
   onEdit?: (l: ListingData) => void
 }
 
@@ -162,7 +162,7 @@ export default function DetailScreen({
       )
       if (chat) {
         showToast('✅ Чат відкрито!')
-        onOpenChat?.(chat.id)
+        onOpenChat?.(chat)
         onBack()
       } else {
         showToast('❌ Помилка створення чату')

@@ -13,7 +13,7 @@ interface Props {
   isGuest: boolean
   onLogin: () => void
   onRefresh?: () => Promise<void>
-  initialChatId?: string
+  initialChat?: ChatRecord | null
   onInitialChatConsumed?: () => void
   onBackToListing?: () => void
   onChatOpenChange?: (open: boolean) => void
@@ -525,13 +525,14 @@ export function useChatSoundListener(userId: string | undefined) {
 }
 
 // ── Main ChatsScreen ──────────────────────────────────────────
-export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onInitialChatConsumed, onBackToListing, onChatOpenChange }: Props) {
+export default function ChatsScreen({ user, isGuest, onLogin, initialChat, onInitialChatConsumed, onBackToListing, onChatOpenChange }: Props) {
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeChat, setActiveChat] = useState<ChatRecord | null>(null)
+  // If we have an initialChat, open it immediately — no loadChats() needed
+  const [activeChat, setActiveChat] = useState<ChatRecord | null>(initialChat ?? null)
   const [pendingDeleteChat, setPendingDeleteChat] = useState<ChatRecord | null>(null)
-  const openedRef = useRef(false)
-  const openedViaListingRef = useRef(false)
+  const openedRef = useRef(!!initialChat)
+  const openedViaListingRef = useRef(!!initialChat)
 
   // Tell the parent whether a single conversation is open, so it can hide
   // the bottom nav only inside ChatWindow (not on the chat list).
@@ -544,35 +545,18 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
     return () => { onChatOpenChange?.(false) }
   }, [onChatOpenChange])
 
+  // Clear the initialChat from parent state so it doesn't re-open on next mount
+  useEffect(() => {
+    if (initialChat) onInitialChatConsumed?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const loadChats = useCallback(async () => {
     if (!user) return
     const data = await getUserChats(user.id)
     setChats(data)
     setLoading(false)
-    if (initialChatId && !openedRef.current) {
-      const target = data.find(c => c.id === initialChatId)
-      if (target) {
-        setActiveChat(target)
-        openedRef.current = true
-        openedViaListingRef.current = true
-        onInitialChatConsumed?.()
-      }
-    }
-  }, [user, initialChatId, onInitialChatConsumed])
-
-  // If initialChatId arrives while chats are already loaded (e.g. navigating
-  // from a listing while the chat list is cached), open it instantly without
-  // waiting for another loadChats() round-trip.
-  useEffect(() => {
-    if (!initialChatId || openedRef.current) return
-    const target = chats.find(c => c.id === initialChatId)
-    if (target) {
-      setActiveChat(target)
-      openedRef.current = true
-      openedViaListingRef.current = true
-      onInitialChatConsumed?.()
-    }
-  }, [initialChatId, chats, onInitialChatConsumed])
+  }, [user])
 
   useEffect(() => {
     if (!user) { setLoading(false); return }
@@ -583,12 +567,6 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChatId, onI
 
   const totalUnread = chats.reduce((s, c) =>
     s + (c.buyer_id === user?.id ? (c.unread_buyer || 0) : (c.unread_seller || 0)), 0)
-
-  // While loading and we know we need to open a specific chat — show a blank
-  // dark screen instead of the chat list so there's no flash of wrong content.
-  if (loading && initialChatId && !activeChat) {
-    return <div style={{ minHeight: '100dvh', background: '#0F1117' }} />
-  }
 
   if (!user) {
     return (
