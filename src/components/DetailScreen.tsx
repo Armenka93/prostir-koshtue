@@ -84,7 +84,19 @@ export default function DetailScreen({
 
     // Don't count a view from this browser again within 24h — otherwise
     // reloading the page repeatedly inflates the counter meaninglessly.
-    if (hasViewedRecently(data.id)) return
+    if (hasViewedRecently(data.id)) {
+      // Still fetch fresh counters even if we don't increment views,
+      // so likes shown on open are always accurate from the DB.
+      let cancelled = false
+      dbGetListingCounters(data.id).then(fresh => {
+        if (!cancelled && fresh) {
+          setLocalViews(fresh.views)
+          baseLikes.current = fresh.likes
+          setLikeDelta(0)
+        }
+      })
+      return () => { cancelled = true }
+    }
     markViewed(data.id)
 
     let cancelled = false
@@ -93,6 +105,8 @@ export default function DetailScreen({
       const fresh = await dbGetListingCounters(data.id)
       if (!cancelled && fresh) {
         setLocalViews(fresh.views)
+        baseLikes.current = fresh.likes
+        setLikeDelta(0)
       }
     })()
 
