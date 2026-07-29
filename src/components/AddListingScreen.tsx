@@ -253,12 +253,12 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
         {/* Floor */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div>
-            <label style={lbl}>Поверх</label>
-            <input style={inpStyle(false)} type="number" inputMode="numeric" value={floor} onChange={e => setFloor(e.target.value)} placeholder="3" />
+            <label style={lbl}>Поверх <span style={{fontWeight:400, textTransform:'none', letterSpacing:0, color:'#6B7280'}}>(необов'яз.)</span></label>
+            <input style={inpStyle(false)} type="number" inputMode="numeric" value={floor} onChange={e => setFloor(e.target.value)} placeholder="напр. 3" />
           </div>
           <div>
-            <label style={lbl}>Всього поверхів</label>
-            <input style={inpStyle(false)} type="number" inputMode="numeric" value={totalFloors} onChange={e => setTotalFloors(e.target.value)} placeholder="9" />
+            <label style={lbl}>Всього поверхів <span style={{fontWeight:400, textTransform:'none', letterSpacing:0, color:'#6B7280'}}>(необов'яз.)</span></label>
+            <input style={inpStyle(false)} type="number" inputMode="numeric" value={totalFloors} onChange={e => setTotalFloors(e.target.value)} placeholder="напр. 9" />
           </div>
         </div>
 
