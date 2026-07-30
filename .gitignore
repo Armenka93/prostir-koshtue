@@ -1,0 +1,9 @@
+node_modules/
+.next/
+/test-results/
+/playwright-report/
+/playwright/.cache/
+.env*.local
+*.log
+.DS_Store
+Thumbs.db
