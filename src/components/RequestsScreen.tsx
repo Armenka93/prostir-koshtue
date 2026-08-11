@@ -24,8 +24,9 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
   const [tab, setTab] = useState<'active' | 'archive'>('active')
   const mineAll = listings.filter(l => {
     if (!user) return false
-    // Match by userId (DB) or legacy 'me' (localStorage)
-    return l.userId === user.id || l.userId === 'me' || l.ownerName === user.name
+    // ownerId (listings.owner_id) is the primary check going forward —
+    // userId/'me'/ownerName stay as fallbacks for compatibility.
+    return l.ownerId === user.id || l.userId === user.id || l.userId === 'me' || l.ownerName === user.name
   })
   const mine = mineAll.filter(l => l.isActive !== false)
   const archived = mineAll.filter(l => l.isActive === false)

@@ -177,9 +177,24 @@ export interface DbAccount {
   id: string; name: string; email: string; phone: string
   role: string; password_hash: string; created_at: string
   avatar_url?: string | null
+  // Bridge to Supabase Auth (auth.users.id). Column + the trigger that
+  // populates it (handle_new_auth_user()) are added by
+  // supabase/migrations/20260806_auth_rls_hardening.sql (STAGE 1) — no
+  // client code writes this field; it's typed here only so reads (e.g. a
+  // future dbFindAccountByAuthId()) have it available once STAGE 1 lands.
+  auth_id?: string | null
 }
 
-export async function dbGetAccounts(): Promise<DbAccount[]> {
+// What dbGetAccounts() actually selects — deliberately excludes
+// password_hash (no reason for a user-list view to ever fetch it) and
+// avatar_url/auth_id (not currently shown there). This was previously
+// mistyped as DbAccount[] itself, which requires password_hash — a latent
+// type error that TypeScript wasn't reporting only because a syntax error
+// elsewhere (src/components/InstallPrompt.tsx) was short-circuiting the
+// project's type-check before it got this far; unrelated to Supabase Auth.
+export type DbAccountSummary = Pick<DbAccount, 'id' | 'name' | 'email' | 'phone' | 'role' | 'created_at'>
+
+export async function dbGetAccounts(): Promise<DbAccountSummary[]> {
   if (!isSupabaseReady()) return []
   try {
     const { data, error } = await supabase
@@ -241,6 +256,10 @@ export async function dbUploadAvatar(file: File, userId: string): Promise<string
   }
 }
 
+// Not called by the live signup flow anymore — src/lib/auth.ts registerAccount()
+// deliberately leaves creating the `accounts` row to the handle_new_auth_user()
+// DB trigger (STAGE 1) so there's a single source of truth for that insert.
+// Left here as a general-purpose helper for any future admin/manual-account use.
 export async function dbCreateAccount(acc: DbAccount): Promise<{ ok: boolean; error?: string }> {
   if (!isSupabaseReady()) return { ok: false, error: 'Supabase not configured' }
   try {
@@ -363,6 +382,10 @@ export function rowToListing(row: any): ListingData {
   return {
     id: Number(row.id),
     userId: row.user_id || '',
+    // Falls back to user_id for any row where owner_id hasn't been
+    // populated (shouldn't happen for rows written by listingToRow() below,
+    // which always sets both) — see the ListingData.ownerId comment.
+    ownerId: row.owner_id || row.user_id || '',
     ownerName: row.owner_name || null,
     ownerPhone: row.owner_phone || null,
     title: row.title || '',
@@ -395,7 +418,13 @@ export function rowToListing(row: any): ListingData {
 
 function listingToRow(l: Partial<ListingData>) {
   return {
-    user_id: l.userId || 'anonymous',
+    // No 'anonymous' fallback: publishing is gated to logged-in users
+    // (see handleAddListing()'s guard in page.tsx), so userId should always
+    // be a real Supabase Auth uid here. owner_id mirrors it — same value,
+    // written to the new bridge column STAGE2's RLS policies will check
+    // (owner_id = auth.uid()), while user_id stays for old-code compat.
+    user_id: l.userId || '',
+    owner_id: l.userId || null,
     owner_name: l.ownerName || null,
     owner_phone: l.ownerPhone || null,
     title: (l.title || '').trim(),
@@ -464,10 +493,13 @@ export async function dbAdjustLikes(id: number, delta: 1 | -1): Promise<void> {
 export async function dbGetUserFavorites(userId: string): Promise<number[]> {
   if (!isSupabaseReady() || !userId) return []
   try {
+    // Filters on user_id_uuid (not the old text user_id) — that's the
+    // column STAGE2's RLS policy (user_id_uuid = auth.uid()) will check,
+    // and dbAddFavorite() below always populates it now.
     const { data, error } = await supabase
       .from('favorites')
       .select('listing_id')
-      .eq('user_id', userId)
+      .eq('user_id_uuid', userId)
     if (error) { console.error('[dbGetUserFavorites]', error.message); return [] }
     return (data || []).map(r => Number(r.listing_id))
   } catch (e: any) {
@@ -479,10 +511,15 @@ export async function dbGetUserFavorites(userId: string): Promise<number[]> {
 export async function dbAddFavorite(userId: string, listingId: number): Promise<boolean> {
   if (!isSupabaseReady() || !userId) return false
   try {
-    // upsert so a double-tap can't error on the unique (user_id, listing_id) key
+    // Writes both user_id (old, kept for compat) and user_id_uuid (new
+    // bridge column). onConflict still targets the old (user_id, listing_id)
+    // unique constraint — that constraint isn't changing.
     const { error } = await supabase
       .from('favorites')
-      .upsert({ user_id: userId, listing_id: listingId }, { onConflict: 'user_id,listing_id', ignoreDuplicates: true })
+      .upsert(
+        { user_id: userId, user_id_uuid: userId, listing_id: listingId },
+        { onConflict: 'user_id,listing_id', ignoreDuplicates: true }
+      )
     if (error) { console.error('[dbAddFavorite]', error.message); return false }
     return true
   } catch (e: any) {
@@ -497,7 +534,7 @@ export async function dbRemoveFavorite(userId: string, listingId: number): Promi
     const { error } = await supabase
       .from('favorites')
       .delete()
-      .eq('user_id', userId)
+      .eq('user_id_uuid', userId)
       .eq('listing_id', listingId)
     if (error) { console.error('[dbRemoveFavorite]', error.message); return false }
     return true

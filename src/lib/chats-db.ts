@@ -44,10 +44,13 @@ export async function uploadChatImage(file: File, chatId: string): Promise<strin
 }
 
 export async function getUserChats(userId: string): Promise<ChatRecord[]> {
+  // Filters on the *_uuid bridge columns — what STAGE2's RLS policy checks
+  // (buyer_id_uuid = auth.uid() or seller_id_uuid = auth.uid()); both are
+  // always written now by getOrCreateChat() below.
   const { data, error } = await supabase
     .from('chats')
     .select('*')
-    .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
+    .or(`buyer_id_uuid.eq.${userId},seller_id_uuid.eq.${userId}`)
     .order('last_at', { ascending: false })
   if (error) { console.error('[getUserChats]', error.message); return [] }
   return data || []
@@ -61,8 +64,8 @@ export async function getOrCreateChat(
   const { data: existing } = await supabase
     .from('chats').select('*')
     .eq('listing_id', listingId)
-    .eq('buyer_id', buyerId)
-    .eq('seller_id', sellerId)
+    .eq('buyer_id_uuid', buyerId)
+    .eq('seller_id_uuid', sellerId)
     .maybeSingle()
   if (existing) return existing
 
@@ -70,8 +73,11 @@ export async function getOrCreateChat(
   const { data, error } = await supabase
     .from('chats').insert({
       id: chatId, listing_id: listingId, listing_title: listingTitle,
-      buyer_id: buyerId, buyer_name: buyerName,
-      seller_id: sellerId, seller_name: sellerName,
+      // Old text columns kept for compat, new *_uuid bridge columns are
+      // what STAGE2's RLS will actually check — both get the same value
+      // since buyerId/sellerId are already real Supabase Auth uids here.
+      buyer_id: buyerId, buyer_id_uuid: buyerId, buyer_name: buyerName,
+      seller_id: sellerId, seller_id_uuid: sellerId, seller_name: sellerName,
       last_message: '', last_at: new Date().toISOString(),
       unread_buyer: 0, unread_seller: 0,
     }).select().single()
@@ -109,7 +115,9 @@ export async function sendMessage(
 ): Promise<MessageRecord | null> {
   const { data, error } = await supabase
     .from('messages')
-    .insert({ chat_id: chatId, sender_id: senderId, sender_name: senderName, text, image_url: imageUrl || null })
+    // sender_id kept for compat; sender_id_uuid is the bridge column
+    // STAGE2's RLS (sender_id_uuid = auth.uid()) will check.
+    .insert({ chat_id: chatId, sender_id: senderId, sender_id_uuid: senderId, sender_name: senderName, text, image_url: imageUrl || null })
     .select().single()
   if (error) { console.error('[sendMessage]', error.message); return null }
 
@@ -129,11 +137,11 @@ export async function sendMessage(
 export async function getUnreadCount(userId: string): Promise<number> {
   const { data } = await supabase
     .from('chats')
-    .select('unread_buyer, unread_seller, buyer_id')
-    .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
+    .select('unread_buyer, unread_seller, buyer_id_uuid')
+    .or(`buyer_id_uuid.eq.${userId},seller_id_uuid.eq.${userId}`)
   if (!data) return 0
   return data.reduce((s, c) =>
-    s + (c.buyer_id === userId ? (c.unread_buyer || 0) : (c.unread_seller || 0)), 0)
+    s + (c.buyer_id_uuid === userId ? (c.unread_buyer || 0) : (c.unread_seller || 0)), 0)
 }
 
 // Realtime subscriptions

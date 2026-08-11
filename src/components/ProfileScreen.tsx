@@ -5,18 +5,17 @@ import {
   dbGetAccounts, dbGetFeedbacks, dbMarkFeedbackRead,
   dbGetListings, subscribeToAccounts, subscribeFeedback,
   dbUpdateAccount, dbUploadAvatar,
-  type DbAccount, type DbFeedback,
+  type DbAccountSummary, type DbFeedback,
 } from '@/lib/db'
-import { saveSession } from '@/lib/storage'
 import { changePassword, changeEmail } from '@/lib/auth'
 import { usePTR } from '@/hooks/usePTR'
 import PTRIndicator from './PTRIndicator'
 import ConfirmModal from '@/components/ConfirmModal'
 
-export const ADMIN_EMAIL = 'armen.saakyan9393@gmail.com'
+// Single source of admin status: accounts.role, via User.role (populated
+// from the DB in src/lib/auth.ts buildUser()). No client-side email check.
 function isAdmin(user: User | null | undefined): boolean {
-  if (!user) return false
-  return (user.email || '').toLowerCase().trim() === ADMIN_EMAIL.toLowerCase()
+  return user?.role === 'admin'
 }
 
 interface Props {
@@ -147,10 +146,14 @@ function EditModal({ user, onClose, onSaved, showToast }: { user: User; onClose:
     setError('')
     setLoading(true)
 
-    // Email is a separate check (uniqueness against other accounts), so it
-    // goes through its own helper rather than the generic field update.
-    if (email.trim().toLowerCase() !== user.email.toLowerCase()) {
-      const res = await changeEmail(user.id, email)
+    // Email is a separate check (goes through Supabase Auth), so it goes
+    // through its own helper rather than the generic field update. Unlike
+    // before, changing it no longer takes effect immediately — Supabase
+    // sends a confirmation link to the new address, so we don't
+    // optimistically show the new email until that's confirmed.
+    const emailChanged = email.trim().toLowerCase() !== user.email.toLowerCase()
+    if (emailChanged) {
+      const res = await changeEmail(email)
       if (!res.ok) { setError(res.error || 'Помилка зміни email'); setLoading(false); return }
     }
 
@@ -162,9 +165,11 @@ function EditModal({ user, onClose, onSaved, showToast }: { user: User; onClose:
     setLoading(false)
     if (!ok) { setError('Не вдалося зберегти зміни'); return }
 
-    const updated: User = { ...user, name: name.trim(), phone: phone.trim(), email: email.trim().toLowerCase(), image: avatarPreview.startsWith('blob:') ? user.image : avatarPreview }
-    saveSession(updated)
+    // No manual session save — Supabase Auth keeps its own session; name/
+    // phone/avatar live in `accounts` and are refreshed via onSaved() below.
+    const updated: User = { ...user, name: name.trim(), phone: phone.trim(), image: avatarPreview.startsWith('blob:') ? user.image : avatarPreview }
     onSaved(updated)
+    if (emailChanged) showToast('✅ Збережено. Підтвердіть новий email за посиланням у листі')
     onClose()
   }
 
@@ -173,7 +178,7 @@ function EditModal({ user, onClose, onSaved, showToast }: { user: User; onClose:
     if (newPwd !== newPwd2) { setPwdError('Паролі не співпадають'); return }
     setPwdError('')
     setPwdLoading(true)
-    const res = await changePassword(user.id, curPwd, newPwd)
+    const res = await changePassword(curPwd, newPwd)
     setPwdLoading(false)
     if (!res.ok) { setPwdError(res.error || 'Помилка'); return }
     setCurPwd(''); setNewPwd(''); setNewPwd2(''); setShowPwd(false)
@@ -236,7 +241,7 @@ function EditModal({ user, onClose, onSaved, showToast }: { user: User; onClose:
 // ── ADMIN DASHBOARD ───────────────────────────────────────────
 function AdminDashboard({ propListings, onDeleteListing, registerReload }: { propListings: ListingData[]; onDeleteListing?: (id: number) => void; registerReload?: (fn: () => void) => void }) {
   const [tab, setTab] = useState<'stats'|'listings'|'feedback'|'users'>('stats')
-  const [accounts, setAccounts] = useState<DbAccount[]>([])
+  const [accounts, setAccounts] = useState<DbAccountSummary[]>([])
   const [feedbacks, setFeedbacks] = useState<DbFeedback[]>([])
   const [listings, setListings] = useState<ListingData[]>([])
   const [loading, setLoading] = useState(true)
@@ -380,7 +385,9 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
     adminReloadRef.current?.()
   })
   const admin = isAdmin(currentUser)
-  const myListings = listings.filter(l => (l.userId === currentUser?.id || l.userId === 'me') && l.isActive !== false)
+  const myListings = listings.filter(l =>
+    (l.ownerId === currentUser?.id || l.userId === currentUser?.id || l.userId === 'me') && l.isActive !== false
+  )
   const totalViews = myListings.reduce((s, l) => s + (l.views || 0), 0)
 
   useEffect(() => { setCurrentUser(user) }, [user])
