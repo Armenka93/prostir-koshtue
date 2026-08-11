@@ -59,7 +59,7 @@ export default function DetailScreen({
   const images = data.images?.length ? data.images : ['/no-photo.png']
   const isLoggedIn = !!user
   const hasPhone = !!data.ownerPhone
-  const isOwn = !!user && (data.userId === user.id || data.userId === 'me')
+  const isOwn = !!user && (data.ownerId === user.id || data.userId === user.id || data.userId === 'me')
   const maskedPhone = data.ownerPhone ? maskPhone(data.ownerPhone) : '*** *** ****'
   const displayPhone = data.ownerPhone ? formatPhone(data.ownerPhone) : ''
   const phoneHref = data.ownerPhone ? telHref(data.ownerPhone) : ''
@@ -142,10 +142,16 @@ export default function DetailScreen({
     if (!isLoggedIn) { onLogin?.(); return }
     if (isOwn) { showToast('Це ваше оголошення'); return }
 
-    const sellerId = data.userId || 'unknown'
+    // Prefer ownerId (listings.owner_id, the Supabase Auth uid bridge
+    // column) over the old userId — for a listing published before this
+    // bridge column existed, userId could be a legacy non-UUID id (or the
+    // 'anonymous' placeholder), which would fail to insert into
+    // chats.seller_id_uuid (a real uuid column). No 'unknown' placeholder:
+    // if there's genuinely no owner, don't create a chat at all.
+    const sellerId = data.ownerId || data.userId || ''
     const sellerName = data.ownerName || 'Власник'
 
-    if (sellerId === 'unknown' || !sellerId) {
+    if (!sellerId) {
       showToast('Продавець недоступний')
       return
     }

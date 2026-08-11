@@ -1,11 +1,18 @@
 /**
  * DATABASE LAYER — localStorage persistence
- * Всі дані зберігаються тут. Легко замінити на Supabase.
+ *
+ * Pre-Supabase legacy. Only loadFavs/saveFavs (local favorites cache) and
+ * hasViewedRecently/markViewed (view-count dedup) are still live — both are
+ * used by src/app/page.tsx and src/lib/db.ts respectively.
+ *
+ * Everything under ACCOUNTS/SESSION below is LEGACY and unused by the live
+ * app: auth now goes through src/lib/auth.ts (supabase.auth.*). Kept only
+ * for rollback reference — do not import registerAccount/loginAccount/
+ * saveSession/loadSession/clearSession/getAccounts/updateAccount from here.
+ * (ProfileScreen.tsx used to import saveSession from this file by mistake —
+ * that's fixed; it now uses src/lib/auth.ts's session handling instead.)
  */
 import type { User, ListingData } from '@/types'
-
-export const ADMIN_EMAIL = 'armen.saakyan9393@gmail.com'
-const isAdminEmail = (e: string) => e.toLowerCase().trim() === ADMIN_EMAIL.toLowerCase()
 
 const K = {
   SESSION:   'pk_session',
@@ -29,28 +36,31 @@ function safe_del(key: string) {
   if (typeof window === 'undefined') return
   try { localStorage.removeItem(key) } catch {}
 }
+/** @deprecated LEGACY — not cryptographic, not used by the live auth flow (see src/lib/auth.ts). */
 function hash(s: string): string {
   let h = 0
   for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0 }
   return h.toString(36)
 }
 
-// ── ACCOUNTS ─────────────────────────────────────────────────
+// ── ACCOUNTS (LEGACY — unused, see file header) ─────────────────
 export interface Account {
   id: string; name: string; email: string; phone: string
   role: 'user' | 'landlord' | 'admin'; passwordHash: string
   createdAt: string; avatar?: string; bio?: string
 }
 
+/** @deprecated LEGACY — accounts now live in Supabase, see src/lib/db.ts dbGetAccounts(). */
 export function getAccounts(): Account[] { return safe_get<Account[]>(K.ACCOUNTS, []) }
 
+/** @deprecated LEGACY — use registerAccount() from '@/lib/auth' (supabase.auth.signUp). */
 export function registerAccount(name: string, email: string, phone: string, password: string): { ok: boolean; error?: string; user?: User } {
   const accounts = getAccounts()
   if (accounts.find(a => a.email.toLowerCase() === email.toLowerCase()))
     return { ok: false, error: 'Акаунт з таким email вже існує. Увійдіть.' }
   const acc: Account = {
     id: 'u_' + Date.now(), name, email, phone,
-    role: isAdminEmail(email) ? 'admin' : 'landlord',
+    role: 'landlord',
     passwordHash: hash(password),
     createdAt: new Date().toISOString(),
   }
@@ -60,16 +70,17 @@ export function registerAccount(name: string, email: string, phone: string, pass
   return { ok: true, user }
 }
 
+/** @deprecated LEGACY — use loginAccount() from '@/lib/auth' (supabase.auth.signInWithPassword). */
 export function loginAccount(email: string, password: string): { ok: boolean; error?: string; user?: User } {
   const acc = getAccounts().find(a => a.email.toLowerCase() === email.toLowerCase())
   if (!acc) return { ok: false, error: 'Акаунту з таким email не існує. Зареєструйтесь.' }
   if (acc.passwordHash !== hash(password)) return { ok: false, error: 'Невірний пароль.' }
-  const role = isAdminEmail(acc.email) ? 'admin' : acc.role
-  const user: User = { id: acc.id, name: acc.name, email: acc.email, phone: acc.phone, role }
+  const user: User = { id: acc.id, name: acc.name, email: acc.email, phone: acc.phone, role: acc.role }
   saveSession(user)
   return { ok: true, user }
 }
 
+/** @deprecated LEGACY — use dbUpdateAccount() from '@/lib/db'. */
 export function updateAccount(userId: string, updates: Partial<Account>): User | null {
   const accounts = getAccounts()
   const idx = accounts.findIndex(a => a.id === userId)
@@ -80,9 +91,12 @@ export function updateAccount(userId: string, updates: Partial<Account>): User |
   return { id: acc.id, name: acc.name, email: acc.email, phone: acc.phone, role: acc.role }
 }
 
-// ── SESSION ───────────────────────────────────────────────────
+// ── SESSION (LEGACY — unused, see file header) ──────────────────
+/** @deprecated LEGACY — Supabase Auth persists its own session; use getSessionUser()/signOut() from '@/lib/auth'. */
 export function saveSession(user: User) { safe_set(K.SESSION, user) }
+/** @deprecated LEGACY — use getSessionUser() from '@/lib/auth'. */
 export function loadSession(): User | null { return safe_get<User | null>(K.SESSION, null) }
+/** @deprecated LEGACY — use signOut() from '@/lib/auth'. */
 export function clearSession() { safe_del(K.SESSION) }
 
 // ── FAVOURITES ────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import type { User } from '@/types'
-import { registerAccount, loginAccount } from '@/lib/auth'
+import { registerAccount, loginAccount, resendConfirmation } from '@/lib/auth'
 
 interface Props {
   onDone: (user: User) => void
@@ -15,7 +15,13 @@ export default function AuthScreen({ onDone, onGuest }: Props) {
   const [password, setPassword] = useState('')
   const [phone, setPhone] = useState('')
   const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
   const [loading, setLoading] = useState(false)
+  // Set only while the "check your email" info banner is showing after a
+  // signup — lets the resend button below know which address to resend to,
+  // without re-reading the (possibly since-edited) email input.
+  const [pendingEmail, setPendingEmail] = useState('')
+  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent'>('idle')
 
   const inp: React.CSSProperties = {
     width: '100%', background: '#1A1F2E', border: '1px solid #2A3045',
@@ -27,6 +33,9 @@ export default function AuthScreen({ onDone, onGuest }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setInfo('')
+    setPendingEmail('')
+    setResendState('idle')
     if (mode === 'signup') {
       if (!name.trim()) { setError("Введіть ваше ім'я"); return }
       if (!email.trim() || !email.includes('@')) { setError('Невірний email'); return }
@@ -37,17 +46,45 @@ export default function AuthScreen({ onDone, onGuest }: Props) {
       const result = await registerAccount(name.trim(), email.trim().toLowerCase(), phone.trim(), password)
       setLoading(false)
       if (!result.ok) { setError(result.error || 'Помилка'); return }
+      if (result.needsEmailConfirmation) {
+        // "Confirm email" is on in Supabase Auth — the account exists but
+        // there's no session yet. Don't call onDone() (that would treat
+        // this as a completed login); show instructions instead.
+        setInfo('Акаунт створено. Перевірте пошту та підтвердіть email, щоб увійти.')
+        setPendingEmail(email.trim().toLowerCase())
+        return
+      }
       onDone(result.user!)
     } else {
       if (!email.trim()) { setError('Введіть email'); return }
+      // Previously only enforced by the browser's native type="email"
+      // validation on the input, which silently no-ops if bypassed
+      // (e.g. programmatic submit) — check it explicitly too.
+      if (!email.includes('@')) { setError('Невірний email'); return }
       if (!password) { setError('Введіть пароль'); return }
       setLoading(true)
       await new Promise(r => setTimeout(r, 400))
       const result = await loginAccount(email.trim().toLowerCase(), password)
       setLoading(false)
-      if (!result.ok) { setError(result.error || 'Помилка'); return }
+      if (!result.ok) {
+        setError(result.error || 'Помилка')
+        if (result.needsEmailConfirmation) setPendingEmail(email.trim().toLowerCase())
+        return
+      }
       onDone(result.user!)
     }
+  }
+
+  const handleResend = async () => {
+    if (!pendingEmail) return
+    setResendState('sending')
+    const res = await resendConfirmation(pendingEmail)
+    if (!res.ok) {
+      setResendState('idle')
+      setError(res.error || 'Не вдалося надіслати лист.')
+      return
+    }
+    setResendState('sent')
   }
 
   return (
@@ -60,7 +97,7 @@ export default function AuthScreen({ onDone, onGuest }: Props) {
 
       <div style={{ display: 'flex', background: '#1A1F2E', borderRadius: 14, padding: 4, gap: 4, marginBottom: 24, border: '1px solid #2A3045' }}>
         {(['signin', 'signup'] as const).map(m => (
-          <button key={m} onClick={() => { setMode(m); setError('') }} style={{
+          <button key={m} onClick={() => { setMode(m); setError(''); setInfo(''); setPendingEmail(''); setResendState('idle') }} style={{
             flex: 1, padding: '12px', border: 'none', borderRadius: 11,
             background: mode === m ? '#FF6B1A' : 'transparent',
             color: mode === m ? '#fff' : '#A0A8BC',
@@ -74,6 +111,23 @@ export default function AuthScreen({ onDone, onGuest }: Props) {
         <div style={{ background: '#EF444418', border: '1px solid #EF444440', borderRadius: 12, padding: '13px 16px', marginBottom: 16, color: '#EF4444', fontSize: 14, lineHeight: 1.5 }}>
           ⚠️ {error}
         </div>
+      )}
+
+      {info && (
+        <div style={{ background: '#22C55E18', border: '1px solid #22C55E40', borderRadius: 12, padding: '13px 16px', marginBottom: 16, color: '#22C55E', fontSize: 14, lineHeight: 1.5 }}>
+          ✉️ {info}
+        </div>
+      )}
+
+      {pendingEmail && (
+        <button onClick={handleResend} disabled={resendState !== 'idle'} style={{
+          width: '100%', padding: '13px', marginBottom: 16,
+          background: 'transparent', border: '1px solid #2A3045', borderRadius: 12,
+          color: resendState === 'sent' ? '#22C55E' : '#A0A8BC', fontSize: 14, fontWeight: 500,
+          cursor: resendState === 'idle' ? 'pointer' : 'default', fontFamily: 'Inter, sans-serif',
+        }}>
+          {resendState === 'sent' ? '✅ Лист надіслано ще раз' : resendState === 'sending' ? 'Надсилаємо…' : 'Надіслати лист ще раз'}
+        </button>
       )}
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

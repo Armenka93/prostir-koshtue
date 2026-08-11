@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import type { ListingData, User } from '@/types'
 import { MOCK_LISTINGS, MOCK_IDS, isMockListingId } from '@/lib/mockData'
 import { loadFavs, saveFavs } from '@/lib/storage'
-import { loadSession, saveSession, clearSession } from '@/lib/auth'
+import { getSessionUser, subscribeAuthChanges, signOut } from '@/lib/auth'
 import {
   dbGetListings, dbPublishListing, dbUpdateListing, dbDeleteListing,
   dbArchiveListing, dbRestoreListing,
@@ -115,27 +115,65 @@ function AppInner() {
     setRefreshTick(t => t + 1)
   }, [])
 
-  // Init
+  // Tracks which user id's favorites have already been fetched, so
+  // getSessionUser() (on mount), the onAuthStateChange subscription, and
+  // handleLogin() — all of which can independently observe the same
+  // sign-in — never repeat the favorites round trip for the same session.
+  const bootstrappedUserId = useRef<string | null>(null)
+  const bootstrapFavorites = useCallback((u: User) => {
+    if (bootstrappedUserId.current === u.id) return
+    bootstrappedUserId.current = u.id
+    // Show cached favorites instantly (from localStorage), then replace
+    // with the authoritative list from Supabase. This is what makes the
+    // hearts survive logging out / switching device / clearing the browser:
+    // the source of truth now lives in the DB, keyed by the account id.
+    const cached = loadFavs(u.id)
+    setFavs(cached)
+    favsRef.current = cached
+    dbGetUserFavorites(u.id).then(remote => {
+      setFavs(remote)
+      favsRef.current = remote
+      saveFavs(u.id, remote) // refresh the local cache
+    })
+  }, [])
+
+  const resetAfterSignOut = useCallback(() => {
+    bootstrappedUserId.current = null
+    setUser(null)
+    setIsGuest(false)
+    setFavs([])
+    favsRef.current = []
+    setUnreadMsgs(0)
+  }, [])
+
+  // Init — restore the Supabase Auth session (if any) via getSession(), then
+  // keep in sync with subsequent auth changes (sign-in/out from another tab)
+  // via onAuthStateChange.
   useEffect(() => {
-    const savedUser = loadSession()
-    if (savedUser) {
+    let active = true
+    // onAuthStateChange fires once immediately with the current session as
+    // soon as it's subscribed to, on top of getSessionUser() below already
+    // covering that same initial state — skip that one duplicate callback
+    // so mount doesn't look up the profile twice.
+    let skipFirstAuthEvent = true
+
+    getSessionUser().then(savedUser => {
+      if (!active || !savedUser) return
       setUser(savedUser)
       setPhase('app')
-      // Show cached favorites instantly (from localStorage), then replace
-      // with the authoritative list from Supabase. This is what makes the
-      // hearts survive logging out / switching device / clearing the browser:
-      // the source of truth now lives in the DB, keyed by the account id.
-      const cached = loadFavs(savedUser.id)
-      setFavs(cached)
-      favsRef.current = cached
-      dbGetUserFavorites(savedUser.id).then(remote => {
-        setFavs(remote)
-        favsRef.current = remote
-        saveFavs(savedUser.id, remote) // refresh the local cache
-      })
-    }
+      bootstrapFavorites(savedUser)
+    })
     loadListings()
-  }, [loadListings])
+
+    const unsubscribe = subscribeAuthChanges((u) => {
+      if (skipFirstAuthEvent) { skipFirstAuthEvent = false; return }
+      if (!u) { resetAfterSignOut(); return }
+      setUser(u)
+      setPhase('app')
+      bootstrapFavorites(u)
+    })
+    return () => { active = false; unsubscribe() }
+  }, [loadListings, bootstrapFavorites, resetAfterSignOut])
 
   // Unread messages badge — update every 8s
   useEffect(() => {
@@ -226,17 +264,13 @@ function AppInner() {
   const handleLogin = async (u: User) => {
     setUser(u)
     setIsGuest(false)
-    saveSession(u)
-    // Show cached favorites right away, then load the authoritative list
-    // from Supabase so it's identical on every device this account uses.
-    const cached = loadFavs(u.id)
-    setFavs(cached)
-    favsRef.current = cached
-    dbGetUserFavorites(u.id).then(remote => {
-      setFavs(remote)
-      favsRef.current = remote
-      saveFavs(u.id, remote)
-    })
+    // No manual session save — supabase.auth.signUp/signInWithPassword
+    // (called inside registerAccount/loginAccount) already persisted the
+    // session via the supabase client's own storage (see supabase.ts).
+    // bootstrapFavorites is idempotent per user id, so if the
+    // onAuthStateChange subscription already picked up this same sign-in
+    // first, this is a cheap no-op rather than a second fetch.
+    bootstrapFavorites(u)
     await loadListings()
     setPhase('app')
     scrollTop()
@@ -251,13 +285,9 @@ function AppInner() {
     scrollTop()
   }
 
-  const handleLogout = () => {
-    clearSession()
-    setUser(null)
-    setIsGuest(false)
-    setFavs([])
-    favsRef.current = []
-    setUnreadMsgs(0)
+  const handleLogout = async () => {
+    await signOut()
+    resetAfterSignOut()
     setPhase('splash')
     scrollTop()
   }
@@ -271,10 +301,20 @@ function AppInner() {
   }
 
   const handleAddListing = async (data: Partial<ListingData>) => {
+    // No fallback id: publishing without a real authenticated user must be
+    // impossible, not silently attributed to a placeholder owner.
+    // goAddListing() already keeps the form from opening for a logged-out
+    // user — this is the backstop for the session expiring while it's open.
+    if (!user) {
+      showToast('⚠️ Потрібно увійти, щоб опублікувати оголошення')
+      setShowAdd(false)
+      setPhase('auth')
+      return
+    }
     const toPublish: Partial<ListingData> = {
-      userId: user?.id || 'anonymous',
-      ownerName: user?.name || null,
-      ownerPhone: user?.phone || null,
+      userId: user.id,
+      ownerName: user.name || null,
+      ownerPhone: user.phone || null,
       title: data.title || '',
       type: data.type || 'Офіс',
       price: data.price || 0,

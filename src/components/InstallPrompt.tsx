@@ -128,7 +128,7 @@ export default function InstallPrompt() {
 
           {/* Steps */}
           <div style={{ padding: '16px 24px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {os === 'ios' ? [
+            {(os === 'ios' ? [
               { emoji: '⬆️', title: 'Натисни «...» або кнопку меню', sub: 'У правому куті браузера Telegram' },
               { emoji: browserIcon, title: `Вибери «Відкрити в ${browserName}»`, sub: 'Сторінка відкриється в Safari' },
               { emoji: '📲', title: 'Встанови додаток', sub: 'Натисни ⬆️ → «На початковий екран»' },
@@ -136,7 +136,7 @@ export default function InstallPrompt() {
               { emoji: '⬆️', title: 'Натисни «...» або меню', sub: 'У правому куті браузера Telegram' },
               { emoji: browserIcon, title: `Вибери «Відкрити в ${browserName}»`, sub: 'Сторінка відкриється у Chrome' },
               { emoji: '📲', title: 'Встанови додаток', sub: 'Chrome: меню ⋮ → «Додати на екран»' },
-            ]}.map((s, i) => (
+            ]).map((s, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: '#1A1F2E', borderRadius: 12, border: '1px solid #2A3045' }}>
                 <div style={{ width: 36, height: 36, borderRadius: 10, background: i === 0 ? 'linear-gradient(135deg,#FF6B1A,#FF8C3A)' : '#0F1117', border: '1px solid #2A3045', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>{s.emoji}</div>
                 <div>

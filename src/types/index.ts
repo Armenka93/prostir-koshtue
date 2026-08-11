@@ -10,6 +10,11 @@ export interface User {
 export interface ListingData {
   id: number
   userId: string
+  // Supabase Auth uid bridge column (listings.owner_id) — the column RLS
+  // ownership checks will use post-STAGE2, kept alongside userId (still
+  // the same value in practice) rather than replacing it. See
+  // src/lib/db.ts rowToListing()/listingToRow().
+  ownerId?: string
   title: string
   type: string
   price: number
