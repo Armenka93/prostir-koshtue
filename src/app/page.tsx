@@ -75,6 +75,7 @@ function AppInner() {
   const savedShowAll = useRef<{ title: string; items: ListingData[] } | null>(null)
   const clearInitialChat = useCallback(() => setInitialChat(null), [])
   const [toastMsg, setToastMsg] = useState('')
+  const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout>>()
 
   // Keep a ref mirror of favs so toggleFav always reads the LATEST value,
@@ -88,10 +89,11 @@ function AppInner() {
   // Background sound for incoming messages on any page
   useChatSoundListener(user?.id)
 
-  const showToast = useCallback((msg: string) => {
+  const showToast = useCallback((msg: string, opts?: { action?: { label: string; onClick: () => void }; duration?: number }) => {
     setToastMsg(msg)
+    setToastAction(opts?.action || null)
     clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setToastMsg(''), 3000)
+    toastTimer.current = setTimeout(() => { setToastMsg(''); setToastAction(null) }, opts?.duration ?? 3000)
   }, [])
 
   const allListings = React.useMemo(() => {
@@ -385,7 +387,7 @@ function AppInner() {
     setRefreshTick(t => t + 1)
     const ok = await dbArchiveListing(id)
     if (!ok) { await loadListings(); showToast('❌ Помилка видалення') }
-    else showToast('📦 Перенесено в архів')
+    else showToast('📦 Перенесено в архів', { action: { label: 'Скасувати', onClick: () => handleRestoreListing(id) }, duration: 5000 })
   }
 
   const handleRestoreListing = async (id: number) => {
@@ -402,10 +404,10 @@ function AppInner() {
   }
   const goScreen = (s: Screen) => { setActiveScreen(s); scrollTop() }
 
-  if (phase === 'splash') return <><SplashScreen onEnter={() => setPhase('auth')} onGuest={handleGuest} /><Toast msg={toastMsg} /></>
-  if (phase === 'auth') return <><AuthScreen onDone={handleLogin} onGuest={handleGuest} /><Toast msg={toastMsg} /></>
-  if (showFeedback) return <><FeedbackScreen onBack={() => { setShowFeedback(false); scrollTop() }} /><Toast msg={toastMsg} /></>
-  if (showAdd || editingListing) return <><AddListingScreen user={user} onBack={() => { setShowAdd(false); setEditingListing(null); scrollTop() }} onCreated={handleAddListing} onUpdated={handleUpdateListing} editListing={editingListing || undefined} onGoProfile={() => { setShowAdd(false); setEditingListing(null); setActiveScreen('profile'); scrollTop() }} /><Toast msg={toastMsg} /></>
+  if (phase === 'splash') return <><SplashScreen onEnter={() => setPhase('auth')} onGuest={handleGuest} /><Toast msg={toastMsg} action={toastAction} /></>
+  if (phase === 'auth') return <><AuthScreen onDone={handleLogin} onGuest={handleGuest} /><Toast msg={toastMsg} action={toastAction} /></>
+  if (showFeedback) return <><FeedbackScreen onBack={() => { setShowFeedback(false); scrollTop() }} /><Toast msg={toastMsg} action={toastAction} /></>
+  if (showAdd || editingListing) return <><AddListingScreen user={user} onBack={() => { setShowAdd(false); setEditingListing(null); scrollTop() }} onCreated={handleAddListing} onUpdated={handleUpdateListing} editListing={editingListing || undefined} onGoProfile={() => { setShowAdd(false); setEditingListing(null); setActiveScreen('profile'); scrollTop() }} /><Toast msg={toastMsg} action={toastAction} /></>
   if (selectedListing) return (
     <>
       <DetailScreen
@@ -444,11 +446,11 @@ function AppInner() {
         }}
         onEdit={(l) => { setSelectedListing(null); setEditingListing(l); scrollTop() }}
       />
-      <Toast msg={toastMsg} />
+      <Toast msg={toastMsg} action={toastAction} />
     </>
   )
   if (showAll) return (
-    <><AllListingsScreen title={showAll.title} listings={showAll.items} allListings={visibleListings} favorites={favs} onListing={openListing} onFavorite={toggleFav} onBack={() => { const y = savedScrollY.current; setShowAll(null); requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior })) }} /><Toast msg={toastMsg} /></>
+    <><AllListingsScreen title={showAll.title} listings={showAll.items} allListings={visibleListings} favorites={favs} onListing={openListing} onFavorite={toggleFav} onBack={() => { const y = savedScrollY.current; setShowAll(null); requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior })) }} /><Toast msg={toastMsg} action={toastAction} /></>
   )
 
   return (
@@ -488,7 +490,7 @@ function AppInner() {
         {activeScreen === 'profile' && <ProfileScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onFeedback={() => { setShowFeedback(true); scrollTop() }} favCount={favs.length} onLogout={handleLogout} showToast={showToast} listings={allListings} onListing={openListing} onDeleteListing={handleDeleteListing} onRefresh={handleRefresh} onMyListings={() => { setActiveScreen('requests'); scrollTop() }} onEditListing={(l) => { setEditingListing(l); scrollTop() }} onArchiveListing={handleArchiveListing} />}
       </div>
       {!chatWindowOpen && <BottomNav active={activeScreen} onChange={goScreen} favCount={favs.length} unreadMessages={unreadMsgs} />}
-      <Toast msg={toastMsg} />
+      <Toast msg={toastMsg} action={toastAction} />
       <InstallPrompt />
     </>
   )

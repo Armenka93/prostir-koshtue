@@ -19,9 +19,12 @@ interface Props {
   onBack?: () => void
 }
 
+type ConfirmState = { type: 'archive' | 'permanent'; id: number } | null
+
 export default function RequestsScreen({ user, isGuest, listings, onLogin, onAddListing, onListing, onDelete, onRestore, onPermanentDelete, onEdit, onRefresh, onBack }: Props) {
   const ptr = usePTR(onRefresh)
   const [tab, setTab] = useState<'active' | 'archive'>('active')
+  const [confirmState, setConfirmState] = useState<ConfirmState>(null)
   const mineAll = listings.filter(l => {
     if (!user) return false
     // ownerId (listings.owner_id) is the primary check going forward —
@@ -143,7 +146,7 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
                       <button onClick={() => onRestore(listing.id)} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', color: '#22C55E', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                         ♻️ Відновити
                       </button>
-                      <button onClick={() => { if (confirm('Видалити назавжди? Це не можна скасувати.')) onPermanentDelete(listing.id) }} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderLeft: '1px solid #2A3045', color: '#EF4444', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                      <button onClick={() => setConfirmState({ type: 'permanent', id: listing.id })} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderLeft: '1px solid #2A3045', color: '#EF4444', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                         🗑️ Видалити назавжди
                       </button>
                     </>
@@ -155,8 +158,8 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
                       <button onClick={() => onEdit(listing)} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderLeft: '1px solid #2A3045', color: '#FFB020', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                         ✏️ Редагувати
                       </button>
-                      <button onClick={() => { if (confirm('Перенести в архів? Оголошення зникне з пошуку, але ви зможете відновити його пізніше.')) onDelete(listing.id) }} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderLeft: '1px solid #2A3045', color: '#EF4444', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                        🗑️ Видалити
+                      <button onClick={() => setConfirmState({ type: 'archive', id: listing.id })} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderLeft: '1px solid #2A3045', color: '#EF4444', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                        📦 Архівувати
                       </button>
                     </>
                   )}
@@ -166,6 +169,53 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
           })
         )}
       </div>
+
+      {confirmState && (
+        <div
+          onClick={() => setConfirmState(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 300, padding: 24,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%', maxWidth: 340, background: '#1A1F2E',
+              border: '1px solid #2A3045', borderRadius: 18, padding: 22,
+              boxShadow: '0 12px 40px rgba(0,0,0,.5)',
+            }}
+          >
+            <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
+              {confirmState.type === 'archive' ? '📦 Перенести в архів?' : '🗑️ Видалити назавжди?'}
+            </div>
+            <div style={{ fontSize: 14, color: '#A0A8BC', lineHeight: 1.5, marginBottom: 20 }}>
+              {confirmState.type === 'archive'
+                ? 'Оголошення зникне з пошуку, але ви зможете відновити його пізніше з архіву.'
+                : 'Цю дію не можна скасувати — оголошення буде видалено назавжди.'}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setConfirmState(null)}
+                style={{ flex: 1, padding: '12px', background: '#0F1117', border: '1px solid #2A3045', borderRadius: 12, color: '#A0A8BC', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Скасувати
+              </button>
+              <button
+                onClick={() => {
+                  if (confirmState.type === 'archive') onDelete(confirmState.id)
+                  else onPermanentDelete(confirmState.id)
+                  setConfirmState(null)
+                }}
+                style={{ flex: 1, padding: '12px', background: confirmState.type === 'archive' ? 'linear-gradient(135deg,#FF6B1A,#FF8C3A)' : '#EF4444', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+              >
+                {confirmState.type === 'archive' ? 'Архівувати' : 'Видалити'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { useState, useMemo } from 'react'
 import type { ListingData } from '@/types'
 import { TYPE_COLORS, CATEGORIES, DISTRICTS } from '@/types'
 import PropertyCard from './PropertyCard'
+import { pluralizeObjects } from '@/lib/pluralize'
 
 interface Props {
   title: string
@@ -133,7 +134,7 @@ export default function AllListingsScreen({ title, listings, allListings, favori
 
       {/* Count */}
       <div style={{ padding: '0 20px 12px', fontSize: 13, color: '#A0A8BC' }}>
-        Знайдено: <span style={{ color: '#FF6B1A', fontWeight: 700 }}>{filtered.length}</span> об'єктів
+        Знайдено: <span style={{ color: '#FF6B1A', fontWeight: 700 }}>{filtered.length}</span> {pluralizeObjects(filtered.length)}
       </div>
 
       {/* List */}

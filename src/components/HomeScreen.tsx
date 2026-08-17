@@ -6,6 +6,7 @@ import { usePTR } from '@/hooks/usePTR'
 import PTRIndicator from './PTRIndicator'
 import { CATEGORIES, DISTRICTS } from '@/types'
 import { buildFeed, isNewListing } from '@/lib/listing-logic'
+import { pluralizeObjects } from '@/lib/pluralize'
 
 interface Props {
   listings: ListingData[]
@@ -212,7 +213,7 @@ export default function HomeScreen({
       {isSearching && (
         <div style={{ padding: '12px 20px 0' }}>
           <div style={{ fontSize: 13, color: '#A0A8BC', marginBottom: 12 }}>
-            Знайдено: <span style={{ color: '#FF6B1A', fontWeight: 700 }}>{searchResults!.length}</span> об'єктів
+            Знайдено: <span style={{ color: '#FF6B1A', fontWeight: 700 }}>{searchResults!.length}</span> {pluralizeObjects(searchResults!.length)}
           </div>
           {searchResults!.length === 0
             ? <div style={{ textAlign: 'center', padding: '60px 0' }}><div style={{ fontSize: 40 }}>🔍</div><div style={{ fontSize: 16, fontWeight: 600, color: '#fff', marginTop: 12 }}>Нічого не знайдено</div><button onClick={() => setQuery('')} style={{ marginTop: 16, padding: '10px 20px', background: '#FF6B1A', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Скинути</button></div>
