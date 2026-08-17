@@ -3,6 +3,7 @@ import { useState, useMemo } from 'react'
 import PropertyCard from './PropertyCard'
 import type { ListingData } from '@/types'
 import { CATEGORIES, DISTRICTS } from '@/types'
+import { pluralizeObjects } from '@/lib/pluralize'
 
 interface Props {
   listings: ListingData[]
@@ -121,7 +122,7 @@ export default function SearchScreen({ listings, favorites, onListing, onFavorit
 
       <div style={{ padding: '0 20px' }}>
         <div style={{ fontSize: 13, color: '#A0A8BC', marginBottom: 12 }}>
-          Знайдено: <span style={{ color: '#FF6B1A', fontWeight: 700 }}>{filtered.length}</span> об'єктів
+          Знайдено: <span style={{ color: '#FF6B1A', fontWeight: 700 }}>{filtered.length}</span> {pluralizeObjects(filtered.length)}
         </div>
         {filtered.length === 0
           ? <div style={{ textAlign: 'center', padding: '60px 0' }}><div style={{ fontSize: 48 }}>🏢</div><div style={{ fontSize: 18, fontWeight: 600, color: '#fff', marginTop: 12 }}>Нічого не знайдено</div><div style={{ fontSize: 14, color: '#A0A8BC', marginTop: 8 }}>Спробуйте змінити параметри</div></div>

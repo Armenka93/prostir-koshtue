@@ -93,9 +93,16 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
   const handleSubmit = () => {
     // Validate all required fields at once
     const errors: FieldErrors = {}
-    if (!title.trim()) errors.title = 'Введіть назву об\'єкту'
-    if (!price || isNaN(parseInt(price)) || parseInt(price) <= 0) errors.price = 'Введіть коректну ціну (більше 0)'
-    if (!area || isNaN(parseInt(area)) || parseInt(area) <= 0) errors.area = 'Введіть коректну площу (більше 0)'
+    const trimmedTitle = title.trim()
+    if (!trimmedTitle) errors.title = 'Введіть назву об\'єкту'
+    else if (/(.)\1{2,}/i.test(trimmedTitle)) errors.title = 'Назва виглядає некоректно — забагато однакових символів поспіль'
+
+    const priceNum = parseInt(price)
+    if (!price || isNaN(priceNum) || priceNum < 100) errors.price = 'Ціна має бути не менше 100 ₴'
+
+    const areaNum = parseInt(area)
+    if (!area || isNaN(areaNum) || areaNum < 1 || areaNum > 50000) errors.area = 'Площа має бути від 1 до 50 000 м²'
+
     if (!address.trim()) errors.address = 'Введіть адресу об\'єкту'
 
     if (Object.keys(errors).length > 0) {
