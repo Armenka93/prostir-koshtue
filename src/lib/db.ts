@@ -26,7 +26,7 @@ export async function dbGetListings(): Promise<ListingData[]> {
     console.log(`[dbGetListings] status=${status} count=${data?.length ?? 0} error=${error?.message || 'none'}`)
 
     if (error) {
-      console.error('[dbGetListings] ERROR:', error.message, error.details, error.code)
+      console.error('[dbGetListings] ERROR:', error.message, error.code)
       return []
     }
 
@@ -75,7 +75,6 @@ export async function dbPublishListing(listing: Partial<ListingData>): Promise<L
   }
 
   const row = listingToRow(listing)
-  console.log('[dbPublishListing] Inserting:', JSON.stringify(row).slice(0, 300))
 
   try {
     const { data, error, status } = await supabase
@@ -87,7 +86,7 @@ export async function dbPublishListing(listing: Partial<ListingData>): Promise<L
     console.log(`[dbPublishListing] status=${status} id=${data?.id} error=${error?.message || 'none'}`)
 
     if (error) {
-      console.error('[dbPublishListing] ERROR:', error.message, error.details, error.hint, error.code)
+      console.error('[dbPublishListing] ERROR:', error.message, error.code)
       return null
     }
 
