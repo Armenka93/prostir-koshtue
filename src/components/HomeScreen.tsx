@@ -40,34 +40,44 @@ export default function HomeScreen({
   const [priceMax, setPriceMax] = useState(0) // 0 = unlimited
   const [areaMin, setAreaMin] = useState(0)
   const [areaMax, setAreaMax] = useState(0) // 0 = unlimited
+  const [sortBy, setSortBy] = useState('date')
 
   const ptr = usePTR(onRefresh)
 
   const { rekomendovani, populyarni, novi } = useMemo(() => buildFeed(listings), [listings])
 
+  const sortListings = (arr: ListingData[]) => {
+    const r = [...arr]
+    if (sortBy === 'views') r.sort((a, b) => (b.views || 0) - (a.views || 0))
+    else if (sortBy === 'price_asc') r.sort((a, b) => a.price - b.price)
+    else if (sortBy === 'price_desc') r.sort((a, b) => b.price - a.price)
+    else if (sortBy === 'area') r.sort((a, b) => b.area - a.area)
+    else r.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) // 'date' / default
+    return r
+  }
+
   const filteredByCategory = useMemo(() => {
     const hasFilter = activeType !== 'all' || district !== 'Всі райони' ||
       priceMin > 0 || priceMax > 0 || areaMin > 0 || areaMax > 0
     if (!hasFilter) return null
-    return listings
+    return sortListings(listings
       .filter(l => l.isActive !== false)
       .filter(l => activeType === 'all' || l.type === activeType)
       .filter(l => district === 'Всі райони' || l.district === district)
       .filter(l => priceMin === 0 || l.price >= priceMin)
       .filter(l => priceMax === 0 || l.price <= priceMax)
       .filter(l => areaMin === 0 || l.area >= areaMin)
-      .filter(l => areaMax === 0 || l.area <= areaMax)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  }, [activeType, district, priceMin, priceMax, areaMin, areaMax, listings])
+      .filter(l => areaMax === 0 || l.area <= areaMax))
+  }, [activeType, district, priceMin, priceMax, areaMin, areaMax, listings, sortBy])
 
   const searchResults = useMemo(() => {
     if (!query.trim()) return null
     const q = query.toLowerCase()
-    return listings.filter(l => l.isActive !== false).filter(l =>
+    return sortListings(listings.filter(l => l.isActive !== false).filter(l =>
       l.title.toLowerCase().includes(q) || l.district.toLowerCase().includes(q) ||
       l.type.toLowerCase().includes(q) || (l.address || '').toLowerCase().includes(q)
-    )
-  }, [query, listings])
+    ))
+  }, [query, listings, sortBy])
 
   const isSearching = !!searchResults
   const isFiltering = !isSearching && !!filteredByCategory
@@ -76,6 +86,22 @@ export default function HomeScreen({
     setActiveType('all'); setDistrict('Всі райони')
     setPriceMin(0); setPriceMax(0); setAreaMin(0); setAreaMax(0)
   }
+
+  const SORT_OPTIONS: [string, string][] = [['date', 'Найновіші'], ['views', 'Популярні'], ['price_asc', 'Ціна ↑'], ['price_desc', 'Ціна ↓'], ['area', 'Площа ↓']]
+  const sortPills = (
+    <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 12, scrollbarWidth: 'none' } as React.CSSProperties}>
+      {SORT_OPTIONS.map(([id, label]) => (
+        <button key={id} onClick={() => setSortBy(id)} style={{
+          background: sortBy === id ? '#FF6B1A' : '#1A1F2E',
+          border: `1px solid ${sortBy === id ? '#FF6B1A' : '#2A3045'}`,
+          borderRadius: 20, padding: '5px 12px',
+          color: sortBy === id ? '#fff' : '#A0A8BC',
+          fontSize: 12, fontWeight: sortBy === id ? 600 : 400,
+          cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, fontFamily: 'Inter,sans-serif',
+        }}>{label}</button>
+      ))}
+    </div>
+  )
 
   const numInp: React.CSSProperties = {
     background: '#0F1117', border: '1px solid #2A3045', borderRadius: 10,
@@ -215,6 +241,7 @@ export default function HomeScreen({
           <div style={{ fontSize: 13, color: '#A0A8BC', marginBottom: 12 }}>
             Знайдено: <span style={{ color: '#FF6B1A', fontWeight: 700 }}>{searchResults!.length}</span> {pluralizeObjects(searchResults!.length)}
           </div>
+          {searchResults!.length > 0 && sortPills}
           {searchResults!.length === 0
             ? <div style={{ textAlign: 'center', padding: '60px 0' }}><div style={{ fontSize: 40 }}>🔍</div><div style={{ fontSize: 16, fontWeight: 600, color: '#fff', marginTop: 12 }}>Нічого не знайдено</div><button onClick={() => setQuery('')} style={{ marginTop: 16, padding: '10px 20px', background: '#FF6B1A', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Скинути</button></div>
             : searchResults!.map(l => <PropertyCard key={l.id} listing={l} onPress={onListing} onFavorite={onFavorite} isFavorite={favorites.includes(l.id)} />)
@@ -234,6 +261,7 @@ export default function HomeScreen({
             </div>
             <button onClick={resetFilters} style={{ background: 'none', border: 'none', color: '#FF6B1A', fontSize: 12, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Скинути</button>
           </div>
+          {filteredByCategory!.length > 0 && sortPills}
           {filteredByCategory!.length === 0
             ? <div style={{ textAlign: 'center', padding: '40px 0' }}><div style={{ fontSize: 40 }}>🏢</div><div style={{ fontSize: 16, fontWeight: 600, color: '#fff', marginTop: 12 }}>Нічого не знайдено</div></div>
             : filteredByCategory!.map(l => <PropertyCard key={l.id} listing={l} onPress={onListing} onFavorite={onFavorite} isFavorite={favorites.includes(l.id)} />)
