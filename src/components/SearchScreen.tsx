@@ -35,7 +35,9 @@ export default function SearchScreen({ listings, favorites, onListing, onFavorit
     r = r.filter(l => l.price <= priceMax && l.area >= areaMin)
     if (parking) r = r.filter(l => l.parking)
     if (entrance) r = r.filter(l => l.separateEntrance)
-    if (sortBy === 'price_asc') r.sort((a, b) => a.price - b.price)
+    if (sortBy === 'date') r.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    else if (sortBy === 'views') r.sort((a, b) => (b.views || 0) - (a.views || 0))
+    else if (sortBy === 'price_asc') r.sort((a, b) => a.price - b.price)
     else if (sortBy === 'price_desc') r.sort((a, b) => b.price - a.price)
     else if (sortBy === 'area') r.sort((a, b) => b.area - a.area)
     return r
@@ -98,7 +100,7 @@ export default function SearchScreen({ listings, favorites, onListing, onFavorit
             <button onClick={() => setEntrance(e => !e)} style={{ background: entrance ? '#FF6B1A22' : '#1A1F2E', border: `1px solid ${entrance ? '#FF6B1A' : '#2A3045'}`, borderRadius: 20, padding: '6px 14px', color: entrance ? '#FF6B1A' : '#A0A8BC', fontSize: 13, cursor: 'pointer' }}>🚪 Окремий вхід</button>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            {[['default','За замовч.'],['price_asc','Ціна ↑'],['price_desc','Ціна ↓'],['area','Площа ↓']].map(([id, label]) => (
+            {[['default','За замовч.'],['date','Найновіші'],['views','Популярні'],['price_asc','Ціна ↑'],['price_desc','Ціна ↓'],['area','Площа ↓']].map(([id, label]) => (
               <button key={id} onClick={() => setSortBy(id)} style={{
                 background: sortBy === id ? '#FF6B1A' : '#1A1F2E', border: `1px solid ${sortBy === id ? '#FF6B1A' : '#2A3045'}`,
                 borderRadius: 20, padding: '5px 10px', color: sortBy === id ? '#fff' : '#A0A8BC', fontSize: 12, cursor: 'pointer',

@@ -33,15 +33,16 @@ export default function AllListingsScreen({ title, listings, allListings, favori
     if (activeType !== 'all') r = r.filter(l => l.type === activeType)
     if (district !== 'Всі райони') r = r.filter(l => l.district === district)
     r = r.filter(l => l.price <= priceMax && l.area >= areaMin)
-    if (sortBy === 'price_asc') r.sort((a, b) => a.price - b.price)
+    if (sortBy === 'date') r.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    else if (sortBy === 'views') r.sort((a, b) => (b.views || 0) - (a.views || 0))
+    else if (sortBy === 'price_asc') r.sort((a, b) => a.price - b.price)
     else if (sortBy === 'price_desc') r.sort((a, b) => b.price - a.price)
     else if (sortBy === 'area') r.sort((a, b) => b.area - a.area)
-    else if (sortBy === 'views') r.sort((a, b) => b.views - a.views)
     return r
   }, [listings, query, activeType, district, priceMax, areaMin, sortBy])
 
-  const pill = (label: string, active: boolean, onClick: () => void) => (
-    <button onClick={onClick} style={{
+  const pill = (key: string, label: string, active: boolean, onClick: () => void) => (
+    <button key={key} onClick={onClick} style={{
       background: active ? '#FF6B1A' : '#1A1F2E',
       border: `1px solid ${active ? '#FF6B1A' : '#2A3045'}`,
       borderRadius: 20, padding: '6px 14px',
@@ -92,7 +93,7 @@ export default function AllListingsScreen({ title, listings, allListings, favori
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 11, color: '#A0A8BC', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase' as const, letterSpacing: '.5px' }}>Тип</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {CATEGORIES.map(c => pill(c.label, activeType === c.id, () => setActiveType(c.id)))}
+              {CATEGORIES.map(c => pill(`type-${c.id}`, c.label, activeType === c.id, () => setActiveType(c.id)))}
             </div>
           </div>
           <div style={{ marginBottom: 12 }}>
@@ -120,8 +121,8 @@ export default function AllListingsScreen({ title, listings, allListings, favori
             <input type="range" min="0" max="500" step="10" value={areaMin} onChange={e => setAreaMin(+e.target.value)} />
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {[['default','За замовч.'],['views','Популярні'],['price_asc','Ціна ↑'],['price_desc','Ціна ↓'],['area','Площа ↓']].map(([id, label]) =>
-              pill(label, sortBy === id, () => setSortBy(id))
+            {[['default','За замовч.'],['date','Найновіші'],['views','Популярні'],['price_asc','Ціна ↑'],['price_desc','Ціна ↓'],['area','Площа ↓']].map(([id, label]) =>
+              pill(`sort-${id}`, label, sortBy === id, () => setSortBy(id))
             )}
           </div>
         </div>
@@ -129,7 +130,7 @@ export default function AllListingsScreen({ title, listings, allListings, favori
 
       {/* Type chips */}
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '12px 20px', scrollbarWidth: 'none' }}>
-        {CATEGORIES.map(c => pill(`${c.icon} ${c.label}`, activeType === c.id, () => setActiveType(c.id)))}
+        {CATEGORIES.map(c => pill(`chip-${c.id}`, `${c.icon} ${c.label}`, activeType === c.id, () => setActiveType(c.id)))}
       </div>
 
       {/* Count */}
