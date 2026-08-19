@@ -9,6 +9,7 @@ import {
   dbArchiveListing, dbRestoreListing,
   subscribeToListings, isSupabaseReady,
   dbGetUserFavorites, dbAddFavorite, dbRemoveFavorite,
+  ListingRateLimitError,
 } from '@/lib/db'
 import { getUnreadCount, type ChatRecord } from '@/lib/chats-db'
 import { useChatSoundListener } from '@/components/ChatsScreen'
@@ -337,7 +338,21 @@ function AppInner() {
     // No optimistic temp entry — realtime subscription will add the
     // real DB row the moment Supabase confirms the insert. This avoids
     // the duplicate-then-merge flicker (temp row + realtime row + saved row).
-    const saved = await dbPublishListing(toPublish)
+    let saved: ListingData | null
+    try {
+      saved = await dbPublishListing(toPublish)
+    } catch (e) {
+      if (e instanceof ListingRateLimitError) {
+        showToast(e.code === 'LISTING_RATE_LIMIT_10_MIN'
+          ? '⚠️ Ви створили забагато оголошень за короткий час. Спробуйте трохи пізніше.'
+          : '⚠️ Досягнуто денний ліміт публікацій. Спробуйте пізніше.')
+        setShowAdd(false)
+        setActiveScreen('requests')
+        scrollTop()
+        return
+      }
+      throw e
+    }
     if (saved) {
       // Add immediately in case realtime event hasn't arrived yet.
       // The realtime handler already dedupes by id, so this is safe

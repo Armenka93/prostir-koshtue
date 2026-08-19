@@ -68,6 +68,17 @@ export async function dbUploadListingImage(file: File, userId: string): Promise<
   }
 }
 
+// Thrown by dbPublishListing when the DB-level rate-limit trigger
+// (enforce_listing_rate_limit, see supabase/migrations/20260818_listing_rate_limit.sql)
+// rejects the INSERT. The `code` is the exact exception message raised by
+// the trigger — a stable, PII-free identifier the caller can branch on.
+export class ListingRateLimitError extends Error {
+  constructor(public code: 'LISTING_RATE_LIMIT_10_MIN' | 'LISTING_RATE_LIMIT_24_HOURS') {
+    super(code)
+  }
+}
+const RATE_LIMIT_CODES = new Set(['LISTING_RATE_LIMIT_10_MIN', 'LISTING_RATE_LIMIT_24_HOURS'])
+
 export async function dbPublishListing(listing: Partial<ListingData>): Promise<ListingData | null> {
   if (!isSupabaseReady()) {
     console.error('[dbPublishListing] Supabase not ready')
@@ -87,6 +98,9 @@ export async function dbPublishListing(listing: Partial<ListingData>): Promise<L
 
     if (error) {
       console.error('[dbPublishListing] ERROR:', error.message, error.code)
+      if (RATE_LIMIT_CODES.has(error.message)) {
+        throw new ListingRateLimitError(error.message as 'LISTING_RATE_LIMIT_10_MIN' | 'LISTING_RATE_LIMIT_24_HOURS')
+      }
       return null
     }
 
@@ -94,6 +108,7 @@ export async function dbPublishListing(listing: Partial<ListingData>): Promise<L
     console.log('[dbPublishListing] SUCCESS, new listing id:', result.id)
     return result
   } catch (e: any) {
+    if (e instanceof ListingRateLimitError) throw e
     console.error('[dbPublishListing] CATCH:', e?.message)
     return null
   }
