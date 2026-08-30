@@ -1,7 +1,9 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { usePTR } from '@/hooks/usePTR'
 import PTRIndicator from './PTRIndicator'
+import ConfirmModal from './ConfirmModal'
+import EmptyState from './EmptyState'
 import type { ListingData, User } from '@/types'
 
 interface Props {
@@ -21,6 +23,41 @@ interface Props {
 
 type ConfirmState = { type: 'archive' | 'permanent'; id: number } | null
 
+// Desktop-only per-card "⋮" management menu (see .requests-desktop-only) —
+// mobile keeps its existing always-visible three-button row untouched.
+function ManageMenu({ items }: { items: { label: string; onClick: () => void; danger?: boolean }[] }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDocClick = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDocClick); document.removeEventListener('keydown', onKey) }
+  }, [open])
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+        aria-label="Керувати оголошенням" aria-haspopup="menu" aria-expanded={open}
+        style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(15,17,23,.8)', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >⋮</button>
+      {open && (
+        <div role="menu" style={{ position: 'absolute', top: 38, right: 0, background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 12, padding: 6, minWidth: 190, boxShadow: '0 8px 24px rgba(0,0,0,.4)', zIndex: 5 }}>
+          {items.map(item => (
+            <button
+              key={item.label} role="menuitem"
+              onClick={e => { e.stopPropagation(); setOpen(false); item.onClick() }}
+              style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: item.danger ? '#EF4444' : '#fff', fontSize: 14, padding: '10px 12px', borderRadius: 8, cursor: 'pointer' }}
+            >{item.label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function RequestsScreen({ user, isGuest, listings, onLogin, onAddListing, onListing, onDelete, onRestore, onPermanentDelete, onEdit, onRefresh, onBack }: Props) {
   const ptr = usePTR(onRefresh)
   const [tab, setTab] = useState<'active' | 'archive'>('active')
@@ -36,6 +73,8 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
 
   if (!user) {
     return (
+      <div className="desktop-wide-screen">
+      <div className="desktop-wide-screen-inner">
       <div style={{ paddingBottom: 90 }}>
         <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
         <div style={{ padding: "48px 20px 16px", paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -55,12 +94,16 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
           </button>
         </div>
       </div>
+      </div>
+      </div>
     )
   }
 
   const list = tab === 'active' ? mine : archived
 
   return (
+    <div className="desktop-wide-screen">
+    <div className="desktop-wide-screen-inner">
     <div style={{ paddingBottom: 90 }}>
       <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
 
@@ -102,27 +145,23 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
       <div style={{ padding: '4px 20px' }}>
         {list.length === 0 ? (
           tab === 'active' ? (
-            <div style={{ textAlign: 'center', paddingTop: 40 }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>📋</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Ще немає оголошень</div>
-              <div style={{ fontSize: 14, color: '#A0A8BC', marginBottom: 24, lineHeight: 1.5 }}>
-                Додайте приміщення — і орендарі зможуть його знайти
-              </div>
-              <button onClick={onAddListing} style={{ padding: '14px 28px', background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
-                ➕ Додати приміщення
-              </button>
-            </div>
+            <EmptyState
+              icon="📋"
+              title="Ще немає оголошень"
+              subtitle="Додайте приміщення — і орендарі зможуть його знайти"
+              primaryAction={{ label: '➕ Додати приміщення', onClick: onAddListing }}
+            />
           ) : (
-            <div style={{ textAlign: 'center', paddingTop: 40 }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>📦</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Архів порожній</div>
-              <div style={{ fontSize: 13, color: '#A0A8BC', lineHeight: 1.5 }}>
-                Видалені оголошення потрапляють сюди — їх можна відновити
-              </div>
-            </div>
+            <EmptyState
+              icon="📦"
+              title="Архів порожній"
+              subtitle="Видалені оголошення потрапляють сюди — їх можна відновити"
+            />
           )
         ) : (
-          list.map(listing => {
+        <>
+        <div className="requests-mobile-only">
+        {list.map(listing => {
             const img = listing.images?.[0] || '/no-photo.png'
             const isArchived = tab === 'archive'
             return (
@@ -166,56 +205,62 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
                 </div>
               </div>
             )
-          })
+          })}
+        </div>
+
+        <div className="requests-desktop-only">
+        {list.map(listing => {
+            const img = listing.images?.[0] || '/no-photo.png'
+            const isArchived = tab === 'archive'
+            return (
+              <div key={listing.id} style={{ background: '#1A1F2E', borderRadius: 16, overflow: 'hidden', border: '1px solid #2A3045', opacity: isArchived ? 0.75 : 1, position: 'relative' }}>
+                <img src={img} alt={listing.title} style={{ width: '100%', height: 160, objectFit: 'cover', filter: isArchived ? 'grayscale(60%)' : 'none' }} loading="lazy" />
+                <div style={{ position: 'absolute', top: 10, right: 10 }}>
+                  <ManageMenu items={isArchived ? [
+                    { label: '♻️ Відновити', onClick: () => onRestore(listing.id) },
+                    { label: '🗑️ Видалити назавжди', onClick: () => setConfirmState({ type: 'permanent', id: listing.id }), danger: true },
+                  ] : [
+                    { label: '👁️ Переглянути', onClick: () => onListing(listing) },
+                    { label: '✏️ Редагувати', onClick: () => onEdit(listing) },
+                    { label: '📦 Архівувати', onClick: () => setConfirmState({ type: 'archive', id: listing.id }), danger: true },
+                  ]} />
+                </div>
+                <div style={{ padding: '14px 14px 16px' }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 4 }}>{listing.title}</div>
+                  <div style={{ fontSize: 12, color: '#A0A8BC', marginBottom: 4 }}>📍 {listing.district} • {listing.area} м²</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#FF6B1A', marginBottom: 8 }}>{listing.price.toLocaleString('uk-UA')} ₴/міс</div>
+                  {isArchived ? (
+                    <span style={{ background: '#6B728022', color: '#A0A8BC', fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '2px 8px' }}>📦 В архіві</span>
+                  ) : (
+                    <span style={{ background: '#22C55E22', color: '#22C55E', fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '2px 8px' }}>✅ Активне</span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        </>
         )}
       </div>
 
       {confirmState && (
-        <div
-          onClick={() => setConfirmState(null)}
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 300, padding: 24,
+        <ConfirmModal
+          title={confirmState.type === 'archive' ? '📦 Перенести в архів?' : '🗑️ Видалити назавжди?'}
+          message={confirmState.type === 'archive'
+            ? 'Оголошення зникне з пошуку, але ви зможете відновити його пізніше з архіву.'
+            : 'Цю дію не можна скасувати — оголошення буде видалено назавжди.'}
+          confirmLabel={confirmState.type === 'archive' ? 'Архівувати' : 'Видалити'}
+          danger={confirmState.type === 'permanent'}
+          onCancel={() => setConfirmState(null)}
+          onConfirm={() => {
+            if (confirmState.type === 'archive') onDelete(confirmState.id)
+            else onPermanentDelete(confirmState.id)
+            setConfirmState(null)
           }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              width: '100%', maxWidth: 340, background: '#1A1F2E',
-              border: '1px solid #2A3045', borderRadius: 18, padding: 22,
-              boxShadow: '0 12px 40px rgba(0,0,0,.5)',
-            }}
-          >
-            <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
-              {confirmState.type === 'archive' ? '📦 Перенести в архів?' : '🗑️ Видалити назавжди?'}
-            </div>
-            <div style={{ fontSize: 14, color: '#A0A8BC', lineHeight: 1.5, marginBottom: 20 }}>
-              {confirmState.type === 'archive'
-                ? 'Оголошення зникне з пошуку, але ви зможете відновити його пізніше з архіву.'
-                : 'Цю дію не можна скасувати — оголошення буде видалено назавжди.'}
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={() => setConfirmState(null)}
-                style={{ flex: 1, padding: '12px', background: '#0F1117', border: '1px solid #2A3045', borderRadius: 12, color: '#A0A8BC', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-              >
-                Скасувати
-              </button>
-              <button
-                onClick={() => {
-                  if (confirmState.type === 'archive') onDelete(confirmState.id)
-                  else onPermanentDelete(confirmState.id)
-                  setConfirmState(null)
-                }}
-                style={{ flex: 1, padding: '12px', background: confirmState.type === 'archive' ? 'linear-gradient(135deg,#FF6B1A,#FF8C3A)' : '#EF4444', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
-              >
-                {confirmState.type === 'archive' ? 'Архівувати' : 'Видалити'}
-              </button>
-            </div>
-          </div>
-        </div>
+        />
       )}
+    </div>
+    </div>
     </div>
   )
 }

@@ -27,6 +27,8 @@ interface Props {
   onMyListings?: () => void
   onEditListing?: (l: ListingData) => void
   onArchiveListing?: (id: number) => void
+  onGoFavorites?: () => void
+  onGoMessages?: () => void
 }
 
 const IC = {
@@ -58,10 +60,36 @@ function Card({ children }: { children: React.ReactNode }) {
   return <div style={{ background:'#1A1F2E', borderRadius:18, overflow:'hidden', border:'1px solid #2A3045' }}>{children}</div>
 }
 
+// Desktop-only cabinet sidebar (see .profile-sidebar-nav in globals.css) —
+// mobile navigation is unchanged (BottomNav). Only links to screens that
+// already exist; no new screens/features added here.
+function SidebarNav({ onMyListings, onGoFavorites, onGoMessages, onLogout }: {
+  onMyListings?: () => void; onGoFavorites?: () => void; onGoMessages?: () => void; onLogout: () => void
+}) {
+  const itemStyle = (active: boolean): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 14px',
+    background: active ? '#FF6B1A18' : 'transparent', border: 'none', borderRadius: 12,
+    color: active ? '#FF6B1A' : '#A0A8BC', fontSize: 14, fontWeight: active ? 700 : 500,
+    cursor: active ? 'default' : 'pointer', textAlign: 'left', fontFamily: 'Inter, sans-serif',
+  })
+  return (
+    <nav className="profile-sidebar-nav" aria-label="Навігація особистого кабінету">
+      <div style={{ background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 18, padding: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <button style={itemStyle(true)} aria-current="page">👤 Профіль</button>
+        {onMyListings && <button onClick={onMyListings} style={itemStyle(false)}>🏢 Мої оголошення</button>}
+        {onGoFavorites && <button onClick={onGoFavorites} style={itemStyle(false)}>❤️ Обране</button>}
+        {onGoMessages && <button onClick={onGoMessages} style={itemStyle(false)}>💬 Чати</button>}
+        <div style={{ height: 1, background: '#2A3045', margin: '6px 4px' }} />
+        <button onClick={onLogout} style={{ ...itemStyle(false), color: '#EF4444' }}>🚪 Вийти з акаунту</button>
+      </div>
+    </nav>
+  )
+}
+
 function SheetModal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:600, display:'flex', alignItems:'flex-end', backdropFilter:'blur(4px)' }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ width:'100%', maxWidth:430, margin:'0 auto', background:'#1A1F2E', borderRadius:'24px 24px 0 0', padding:'20px', paddingBottom:'max(24px,env(safe-area-inset-bottom,24px))', border:'1px solid #2A3045', maxHeight:'80vh', overflowY:'auto' as const }}>
+    <div className="profile-modal-overlay" style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:600, display:'flex', backdropFilter:'blur(4px)' }} onClick={onClose}>
+      <div className="profile-modal-panel" onClick={e => e.stopPropagation()} style={{ width:'100%', margin:'0 auto', background:'#1A1F2E', padding:'20px', paddingBottom:'max(24px,env(safe-area-inset-bottom,24px))', border:'1px solid #2A3045', maxHeight:'80vh', overflowY:'auto' as const }}>
         <div style={{ width:36, height:4, background:'#2A3045', borderRadius:2, margin:'0 auto 20px' }} />
         <div style={{ fontSize:18, fontWeight:700, color:'#fff', marginBottom:16 }}>{title}</div>
         {children}
@@ -186,8 +214,8 @@ function EditModal({ user, onClose, onSaved, showToast }: { user: User; onClose:
   }
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:600, display:'flex', alignItems:'flex-end', backdropFilter:'blur(4px)' }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ width:'100%', maxWidth:430, margin:'0 auto', background:'#1A1F2E', borderRadius:'24px 24px 0 0', padding:'20px', paddingBottom:'max(24px,env(safe-area-inset-bottom,24px))', border:'1px solid #2A3045', maxHeight:'85vh', overflowY:'auto' as const }}>
+    <div className="profile-modal-overlay" style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:600, display:'flex', backdropFilter:'blur(4px)' }} onClick={onClose}>
+      <div className="profile-modal-panel" onClick={e => e.stopPropagation()} style={{ width:'100%', margin:'0 auto', background:'#1A1F2E', padding:'20px', paddingBottom:'max(24px,env(safe-area-inset-bottom,24px))', border:'1px solid #2A3045', maxHeight:'85vh', overflowY:'auto' as const }}>
         <div style={{ width:36, height:4, background:'#2A3045', borderRadius:2, margin:'0 auto 20px' }} />
         <div style={{ fontSize:18, fontWeight:700, color:'#fff', marginBottom:20 }}>Редагувати профіль</div>
 
@@ -372,7 +400,7 @@ function AdminDashboard({ propListings, onDeleteListing, registerReload }: { pro
     </div>
   )
 }
-export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings=[], onListing, onDeleteListing, onRefresh, onMyListings, onEditListing, onArchiveListing }: Props) {
+export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings=[], onListing, onDeleteListing, onRefresh, onMyListings, onEditListing, onArchiveListing, onGoFavorites, onGoMessages }: Props) {
   const [notif, setNotif] = useState(true)
   const [showEdit, setShowEdit] = useState(false)
   const [showPrivacy, setShowPrivacy] = useState(false)
@@ -394,6 +422,8 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
 
   if (!currentUser) {
     return (
+      <div className="desktop-wide-screen">
+      <div className="desktop-wide-screen-inner">
       <div style={{ paddingBottom:90 }}>
         <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
         <div style={{ padding:'48px 20px 16px', paddingTop:'max(48px,env(safe-area-inset-top,48px))', background:'#0D1018' }}>
@@ -406,12 +436,18 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
           <button onClick={onLogin} style={{ width:'100%', maxWidth:300, padding:'16px', background:'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border:'none', borderRadius:14, color:'#fff', fontSize:16, fontWeight:700, cursor:'pointer' }}>Увійти / Зареєструватись</button>
         </div>
       </div>
+      </div>
+      </div>
     )
   }
 
   const u = currentUser
 
   return (
+    <div className="desktop-wide-screen">
+    <div className="desktop-wide-screen-inner">
+    <div className="profile-desktop-grid">
+    <SidebarNav onMyListings={onMyListings} onGoFavorites={onGoFavorites} onGoMessages={onGoMessages} onLogout={onLogout} />
     <div style={{ paddingBottom:90 }}>
       <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
 
@@ -547,6 +583,9 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
           onCancel={() => setPendingArchiveId(null)}
         />
       )}
+    </div>
+    </div>
+    </div>
     </div>
   )
 }

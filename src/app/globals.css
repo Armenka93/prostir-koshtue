@@ -102,3 +102,216 @@ button { touch-action: manipulation; }
 @media (max-height: 500px) and (orientation: landscape) {
   .bnav { padding: 6px 0 8px !important; }
 }
+
+/* ============================================================
+   D.1 — responsive foundation (mobile untouched below 768px)
+   Breakpoints: mobile <768, tablet 768-1023, desktop >=1024,
+   wide-desktop content cap ~1280-1440.
+   ============================================================ */
+
+/* Desktop header: hidden by default (mobile), shown from tablet up.
+   Fixed to the viewport top (set in DesktopHeader.tsx) — this is the
+   ONLY fixed-position element in the desktop shell. The page body
+   below it scrolls normally; there is no second scroll container. */
+.desktop-header { display: none; }
+
+/* layout.tsx's page-wide wrapper — caps every screen at 430px by
+   default (mobile). Screens adapted for desktop (Home, Catalog,
+   Detail) get `wide-shell` on <body> (toggled from page.tsx based on
+   which screen is active) which lifts the cap here. This keeps the
+   page in normal document flow — no position:fixed, no nested scroll —
+   every other, not-yet-adapted screen keeps the untouched 430px shell. */
+.app-shell { max-width: 430px; overflow-x: hidden; }
+
+/* D.2 — detail card desktop layout hidden by default (mobile); the
+   mobile markup (.detail-mobile-only) has no rule here so it keeps
+   its natural default display, i.e. renders untouched. */
+.detail-desktop-only { display: none; }
+
+/* D.3.1 — Profile cabinet sidebar nav: desktop-only, see
+   .profile-desktop-grid below. BottomNav (unchanged) covers mobile. */
+.profile-sidebar-nav { display: none; }
+
+/* D.3.2 — Chats two-column layout: desktop-only, see .chats-desktop-grid
+   below. Mobile (.chats-mobile-only) has no rule here so it keeps its
+   natural default display — the existing list/full-screen-window stack,
+   completely untouched. */
+.chats-desktop-only { display: none; }
+
+/* D.3.2 — "Мої оголошення" management-card grid: desktop-only, see
+   .requests-desktop-only / .requests-grid below. Mobile
+   (.requests-mobile-only) keeps its existing always-visible
+   three-button row untouched. */
+.requests-desktop-only { display: none; }
+
+/* "Схожі об'єкти" is shared by mobile and desktop (see DetailScreen.tsx)
+   — these are its ORIGINAL pre-D.2 mobile styles (horizontal scroll,
+   fixed 160px cards), kept as the default so mobile is unaffected;
+   overridden into a grid at >=768px below. */
+.detail-similar-row { display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; }
+
+/* D.3.1 — Auth screen (login/register/reset). Base rule is the ORIGINAL
+   pre-D.3.1 mobile layout (top-anchored column) unchanged; >=768px
+   centers the card both axes and clears the fixed desktop header. The
+   card itself is capped at max-width:440 inline in AuthScreen.tsx,
+   which is already a no-op at mobile widths. */
+.auth-screen-wrap { min-height: 100dvh; display: flex; flex-direction: column; padding: 48px 24px 40px; overflow-y: auto; }
+
+/* D.3.1 — Profile screen's modals (Редагувати профіль, Конфіденційність,
+   Про додаток). Base rule is the ORIGINAL pre-D.3.1 mobile bottom-sheet
+   unchanged; >=768px turns it into a centered dialog instead. */
+.profile-modal-overlay { align-items: flex-end; }
+.profile-modal-panel { max-width: 430px; border-radius: 24px 24px 0 0; }
+.detail-similar-card { flex-shrink: 0; width: 160px; }
+
+@media (min-width: 768px) {
+  /* Mobile bottom tab bar hides from tablet width up. */
+  .bnav { display: none !important; }
+
+  .desktop-header { display: flex; }
+
+  /* The logo+avatar row embedded in HomeScreen's own header is
+     redundant once the desktop header is showing. */
+  .mobile-header-row { display: none !important; }
+
+  body.wide-shell .app-shell { max-width: none; overflow-x: visible; }
+
+  /* Home/Catalog/Detail's own wide-layout wrapper — plain document
+     flow now (no position:fixed). Width/centering only; the page
+     scrolls via the normal body scroll, same as every other screen. */
+  .desktop-wide-screen { background: #0F1117; }
+  .desktop-wide-screen-inner {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding-top: 96px; /* clears the fixed 80px desktop header + gap */
+  }
+
+  .listing-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .listing-grid > .property-card { margin-bottom: 0; }
+
+  .catalog-search-wrap { max-width: 640px; margin: 0 auto; }
+
+  /* D.3.2 — Favorites: same grid-card pattern as .listing-grid. Base
+     (mobile) styles are FavoritesScreen.tsx's original inline styles
+     (single column, marginBottom:14) — untouched below 768px. */
+  .favorites-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .favorites-card { margin-bottom: 0; }
+
+  /* D.3.2 — "Мої оголошення": swap the untouched mobile row-list for the
+     desktop card grid with the "⋮" management menu. */
+  .requests-mobile-only { display: none !important; }
+  .requests-desktop-only { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+
+  /* D.3.1 — Auth screen: center the card both axes, clear the fixed
+     header (80px + gap, matching .desktop-wide-screen-inner above). */
+  .auth-screen-wrap { align-items: center; justify-content: center; padding-top: 112px; }
+
+  /* D.3.1 — Profile modals become centered dialogs instead of a bottom
+     sheet sliced to mobile width. */
+  .profile-modal-overlay { align-items: center; }
+  .profile-modal-panel { max-width: 480px; border-radius: 24px; }
+
+  /* D.3.1 — Profile screen: cabinet sidebar nav alongside the existing
+     content, both direct children of .profile-desktop-grid. Hidden by
+     default (mobile) via .profile-sidebar-nav below; BottomNav still
+     covers mobile navigation, unchanged. */
+  .profile-desktop-grid {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+  .profile-sidebar-nav { display: block; position: sticky; top: 96px; }
+
+  /* D.2 — detail card: swap the untouched mobile markup for the new
+     desktop layout from tablet width up (same threshold as the rest
+     of the desktop shell). Both are always mounted; only the CSS
+     display toggles, so they share one component's state/handlers. */
+  .detail-mobile-only { display: none !important; }
+  .detail-desktop-only { display: block; }
+
+  .detail-similar-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .detail-similar-card { width: auto; }
+
+  /* D.2.1 — tablet only (768-1023px): price+contact card moves up,
+     right after the gallery and above the rest of the content, via
+     flex order (all three are direct children of .detail-desktop-grid
+     — see DetailScreen.tsx). Not sticky here, same reasoning as the
+     catalog sidebar not being persistent until true desktop width. */
+  .detail-desktop-grid { display: flex; flex-direction: column; }
+  .detail-gallery-block { order: 1; }
+  .detail-sidebar-sticky { order: 2; margin-bottom: 24px; }
+  .detail-rest-block { order: 3; }
+}
+
+@media (min-width: 1024px) {
+  .listing-grid { grid-template-columns: repeat(3, 1fr); }
+  .favorites-grid { grid-template-columns: repeat(3, 1fr); }
+  .requests-desktop-only { grid-template-columns: repeat(3, 1fr); }
+
+  .catalog-desktop-grid {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+  /* The filters sidebar is always visible on desktop — draftFilters
+     still gate the actual list (nothing applies until "Показати"),
+     only the panel's visibility stops being tied to the mobile
+     gear-icon toggle. */
+  .catalog-sidebar-panel { display: block !important; position: static !important; }
+  .catalog-mobile-only { display: none !important; }
+  .catalog-sticky-header { position: static !important; }
+
+  /* Detail card: true two-column layout only from desktop width up.
+     Gallery/rest form the left column (stacked via grid-row), sidebar
+     spans both rows on the right and becomes sticky here (not on
+     tablet, same reasoning as the catalog sidebar). */
+  .detail-desktop-grid {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    grid-template-rows: auto auto;
+    gap: 32px;
+    align-items: start;
+  }
+  .detail-gallery-block { grid-column: 1; grid-row: 1; order: initial; margin-bottom: 0; }
+  .detail-rest-block { grid-column: 1; grid-row: 2; order: initial; }
+  .detail-sidebar-sticky {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    order: initial;
+    margin-bottom: 0;
+    position: sticky;
+    top: 96px; /* clears the fixed 80px header + gap, same as .desktop-wide-screen-inner's padding-top */
+  }
+
+  /* D.3.2 — Chats: true two-column layout only from desktop width up
+     (tablet keeps the mobile list/full-screen-window stack, same
+     reasoning as the catalog sidebar / detail card thresholds above).
+     Bounded height + internal scroll per column, like any chat app —
+     this is a purpose-built scroll region, not the page-level nested
+     scroll the D.1 architecture review ruled out; the page itself still
+     scrolls normally around this block. */
+  .chats-mobile-only { display: none !important; }
+  .chats-desktop-only { display: block; }
+  .chats-desktop-grid {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    height: calc(100dvh - 96px - 24px);
+    margin-bottom: 24px;
+    border: 1px solid #2A3045;
+    border-radius: 20px;
+    overflow: hidden;
+    background: #0D1018;
+  }
+  .chats-list-col { overflow-y: auto; border-right: 1px solid #2A3045; }
+  .chats-panel-col { overflow: hidden; height: 100%; }
+}

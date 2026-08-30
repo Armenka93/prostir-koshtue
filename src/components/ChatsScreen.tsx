@@ -7,6 +7,7 @@ import {
   type ChatRecord, type MessageRecord,
 } from '@/lib/chats-db'
 import ConfirmModal from '@/components/ConfirmModal'
+import EmptyState from '@/components/EmptyState'
 
 interface Props {
   user: User | null
@@ -177,8 +178,12 @@ function ChatRow({ chat, userId, onOpen, onDelete }: {
 }
 
 // ── Chat Window ───────────────────────────────────────────────
-function ChatWindow({ chat, user, onBack, onDeleted }: {
-  chat: ChatRecord; user: User; onBack: () => void; onDeleted: () => void
+// desktopPanel=true renders this as a normal-flow panel filling the right
+// column of the desktop two-column layout instead of a fixed, maxWidth:430
+// full-screen overlay — see ChatsScreen's .chats-desktop-grid. The mobile
+// path (desktopPanel=false/undefined) is untouched.
+function ChatWindow({ chat, user, onBack, onDeleted, desktopPanel }: {
+  chat: ChatRecord; user: User; onBack: () => void; onDeleted: () => void; desktopPanel?: boolean
 }) {
   const [messages, setMessages] = useState<MessageRecord[]>([])
   const [text, setText] = useState('')
@@ -212,6 +217,11 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // Desktop panel is a normal-flow block, not a fixed full-screen
+    // overlay — none of this keyboard/viewport wrangling applies (and
+    // forcing body.position:fixed here would break desktop page scroll).
+    if (desktopPanel) return
+
     const body = document.body
     const savedScroll = window.scrollY
     const savedPos   = body.style.position
@@ -353,7 +363,12 @@ function ChatWindow({ chat, user, onBack, onDeleted }: {
 
   return (
     <>
-    <div ref={containerRef} style={{
+    <div ref={containerRef} style={desktopPanel ? {
+      position: 'relative', width: '100%', height: '100%',
+      display: 'flex', flexDirection: 'column',
+      background: '#0F1117',
+      overflow: 'hidden',
+    } : {
       position: 'fixed', top: 0, left: '50%', height: '100dvh',
       transform: 'translateX(-50%)',
       width: '100%', maxWidth: 430,
@@ -534,6 +549,25 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChat, onIni
   const openedRef = useRef(!!initialChat)
   const openedViaListingRef = useRef(!!initialChat)
 
+  // Which ChatWindow variant is actually live. The mobile/desktop blocks
+  // below are both always in the DOM (only CSS-hidden, same pattern as
+  // Detail/Requests) — that's fine for the list, but ChatWindow itself
+  // opens a realtime subscription per mount, so mounting it in BOTH
+  // blocks at once (one just hidden) opened two competing subscriptions
+  // on the same channel and crashed the app. Gating on this JS flag
+  // ensures exactly one ChatWindow instance ever mounts. Safe to read
+  // window here at initial state (not just in an effect): layout.tsx
+  // wraps the whole app in ClientOnly, so this component never renders
+  // during SSR.
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)')
+    const onChange = () => setIsDesktop(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
   // Tell the parent whether a single conversation is open, so it can hide
   // the bottom nav only inside ChatWindow (not on the chat list).
   useEffect(() => {
@@ -568,8 +602,33 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChat, onIni
   const totalUnread = chats.reduce((s, c) =>
     s + (c.buyer_id === user?.id ? (c.unread_buyer || 0) : (c.unread_seller || 0)), 0)
 
+  // Shared by both the mobile full-screen window and the desktop right
+  // panel — deselects the active chat either way; on desktop that just
+  // returns the panel to its empty "pick a chat" state since the list
+  // stays visible beside it the whole time.
+  const closeActiveChat = () => {
+    setActiveChat(null)
+    openedRef.current = false
+    if (openedViaListingRef.current && onBackToListing) {
+      openedViaListingRef.current = false
+      onBackToListing()
+    } else {
+      openedViaListingRef.current = false
+      loadChats()
+    }
+  }
+  const deleteActiveChat = () => {
+    // Remove from local list immediately — no waiting for server round-trip
+    setChats(prev => prev.filter(c => c.id !== activeChat!.id))
+    setActiveChat(null)
+    openedRef.current = false
+    openedViaListingRef.current = false
+  }
+
   if (!user) {
     return (
+      <div className="desktop-wide-screen">
+      <div className="desktop-wide-screen-inner">
       <div style={{ paddingBottom: 16 }}>
         <div style={{ padding: '48px 20px 16px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018', borderBottom: '1px solid #1E2334' }}>
           <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Повідомлення</div>
@@ -580,85 +639,120 @@ export default function ChatsScreen({ user, isGuest, onLogin, initialChat, onIni
           <button onClick={onLogin} style={{ background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 14, padding: '14px 36px', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>Увійти</button>
         </div>
       </div>
-    )
-  }
-
-  if (activeChat) {
-    return (
-      <ChatWindow
-        chat={activeChat} user={user}
-        onBack={() => {
-          setActiveChat(null)
-          openedRef.current = false
-          if (openedViaListingRef.current && onBackToListing) {
-            openedViaListingRef.current = false
-            onBackToListing()
-          } else {
-            openedViaListingRef.current = false
-            loadChats()
-          }
-        }}
-        onDeleted={() => {
-          // Remove from local list immediately — no waiting for server round-trip
-          setChats(prev => prev.filter(c => c.id !== activeChat!.id))
-          setActiveChat(null)
-          openedRef.current = false
-          openedViaListingRef.current = false
-        }}
-      />
+      </div>
+      </div>
     )
   }
 
   return (
-    <div style={{ paddingBottom: 90 }}>
-      <div style={{ padding: '48px 20px 14px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018', borderBottom: '1px solid #1E2334', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Повідомлення</div>
-        {totalUnread > 0 && <span style={{ background: '#EF4444', color: '#fff', fontSize: 12, fontWeight: 700, borderRadius: 20, padding: '3px 12px' }}>{totalUnread} нових</span>}
+    <div className="desktop-wide-screen">
+    <div className="desktop-wide-screen-inner">
+
+    {/* Mobile (<1024px) — untouched: list OR full-screen chat window,
+        exactly as before D.3.2. */}
+    <div className="chats-mobile-only">
+      {activeChat && !isDesktop ? (
+        <ChatWindow chat={activeChat} user={user} onBack={closeActiveChat} onDeleted={deleteActiveChat} />
+      ) : (
+        <div style={{ paddingBottom: 90 }}>
+          <div style={{ padding: '48px 20px 14px', paddingTop: 'max(48px,env(safe-area-inset-top,48px))', background: '#0D1018', borderBottom: '1px solid #1E2334', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>Повідомлення</div>
+            {totalUnread > 0 && <span style={{ background: '#EF4444', color: '#fff', fontSize: 12, fontWeight: 700, borderRadius: 20, padding: '3px 12px' }}>{totalUnread} нових</span>}
+          </div>
+
+          {chats.length > 0 && (
+            <div style={{ padding: '7px 18px', borderBottom: '1px solid #1A1F2E' }}>
+              <span style={{ fontSize: 11, color: '#4B5563' }}>← Свайп вліво щоб видалити</span>
+            </div>
+          )}
+
+          {loading && <div style={{ textAlign: 'center', padding: '60px 0', color: '#6B7280' }}>⏳</div>}
+
+          {!loading && chats.length === 0 && (
+            <EmptyState
+              icon="💬"
+              title="Поки немає повідомлень"
+              subtitle="Натисніть 💬 на картці оголошення"
+            />
+          )}
+
+          {!loading && chats.map(chat => (
+            <ChatRow
+              key={chat.id} chat={chat} userId={user.id}
+              onOpen={() => setActiveChat(chat)}
+              onDelete={async () => { setPendingDeleteChat(chat) }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+
+    {/* Desktop (>=1024px) — persistent two-column layout: chat list on
+        the left, selected conversation on the right. Both columns share
+        the same `chats`/`activeChat` state as mobile — no separate
+        fetch, no duplicate subscriptions. */}
+    <div className="chats-desktop-only chats-desktop-grid">
+      <div className="chats-list-col">
+        <div style={{ padding: '20px 20px 14px', borderBottom: '1px solid #1E2334', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>Повідомлення</div>
+          {totalUnread > 0 && <span style={{ background: '#EF4444', color: '#fff', fontSize: 12, fontWeight: 700, borderRadius: 20, padding: '3px 12px' }}>{totalUnread} нових</span>}
+        </div>
+
+        {loading && <div style={{ textAlign: 'center', padding: '60px 0', color: '#6B7280' }}>⏳</div>}
+
+        {!loading && chats.length === 0 && (
+          <EmptyState
+            icon="💬"
+            title="Поки немає повідомлень"
+            subtitle="Натисніть 💬 на картці оголошення"
+          />
+        )}
+
+        {!loading && chats.map(chat => (
+          <div key={chat.id} style={{ background: activeChat?.id === chat.id ? '#1A1F2E' : 'transparent' }}>
+            <ChatRow
+              chat={chat} userId={user.id}
+              onOpen={() => setActiveChat(chat)}
+              onDelete={async () => { setPendingDeleteChat(chat) }}
+            />
+          </div>
+        ))}
       </div>
 
-      {chats.length > 0 && (
-        <div style={{ padding: '7px 18px', borderBottom: '1px solid #1A1F2E' }}>
-          <span style={{ fontSize: 11, color: '#4B5563' }}>← Свайп вліво щоб видалити</span>
-        </div>
-      )}
+      <div className="chats-panel-col">
+        {activeChat && isDesktop ? (
+          <ChatWindow chat={activeChat} user={user} onBack={closeActiveChat} onDeleted={deleteActiveChat} desktopPanel />
+        ) : (
+          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <EmptyState
+              icon="💬"
+              title="Оберіть розмову"
+              subtitle="Виберіть чат зі списку зліва, щоб побачити повідомлення"
+            />
+          </div>
+        )}
+      </div>
+    </div>
 
-      {loading && <div style={{ textAlign: 'center', padding: '60px 0', color: '#6B7280' }}>⏳</div>}
+    {pendingDeleteChat && (
+      <ConfirmModal
+        title="Видалити чат?"
+        message="Переписку буде видалено для вас. Це не можна скасувати."
+        confirmLabel="Видалити"
+        cancelLabel="Скасувати"
+        danger
+        onConfirm={async () => {
+          const id = pendingDeleteChat.id
+          // Remove instantly from local state — UI updates before server responds
+          setChats(prev => prev.filter(c => c.id !== id))
+          setPendingDeleteChat(null)
+          await deleteChat(id)
+        }}
+        onCancel={() => setPendingDeleteChat(null)}
+      />
+    )}
 
-      {!loading && chats.length === 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '70px 24px', gap: 14, textAlign: 'center' }}>
-          <div style={{ fontSize: 60 }}>💬</div>
-          <div style={{ fontSize: 17, fontWeight: 600, color: '#fff' }}>Поки немає повідомлень</div>
-          <div style={{ fontSize: 13, color: '#6B7280', maxWidth: 260, lineHeight: 1.7 }}>Натисніть 💬 на картці оголошення</div>
-        </div>
-      )}
-
-      {!loading && chats.map(chat => (
-        <ChatRow
-          key={chat.id} chat={chat} userId={user.id}
-          onOpen={() => setActiveChat(chat)}
-          onDelete={async () => {
-            setPendingDeleteChat(chat)
-          }}
-        />
-      ))}
-
-      {pendingDeleteChat && (
-        <ConfirmModal
-          title="Видалити чат?"
-          message="Переписку буде видалено для вас. Це не можна скасувати."
-          confirmLabel="Видалити"
-          cancelLabel="Скасувати"
-          danger
-          onConfirm={async () => {
-            const id = pendingDeleteChat.id
-            // Remove instantly from local state — UI updates before server responds
-            setChats(prev => prev.filter(c => c.id !== id))
-            setPendingDeleteChat(null)
-            await deleteChat(id)
-          }}
-          onCancel={() => setPendingDeleteChat(null)}
-        />
-      )}
+    </div>
     </div>
   )
 }

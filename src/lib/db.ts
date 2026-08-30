@@ -13,7 +13,11 @@ export function isSupabaseReady(): boolean {
 
 // ── LISTINGS ──────────────────────────────────────────────────
 
-export async function dbGetListings(): Promise<ListingData[]> {
+// `onError` is optional and additive — existing callers that don't pass it
+// keep the exact same behavior (swallow the error, return []). Callers that
+// want to distinguish "genuinely empty" from "fetch failed" (spec §25: "an
+// API error is not an empty result") can opt in without any signature break.
+export async function dbGetListings(opts?: { onError?: () => void }): Promise<ListingData[]> {
   if (!isSupabaseReady()) return []
   try {
     // NO is_active filter — get ALL listings, let frontend filter
@@ -27,6 +31,7 @@ export async function dbGetListings(): Promise<ListingData[]> {
 
     if (error) {
       console.error('[dbGetListings] ERROR:', error.message, error.code)
+      opts?.onError?.()
       return []
     }
 
@@ -35,6 +40,7 @@ export async function dbGetListings(): Promise<ListingData[]> {
     return listings
   } catch (e: any) {
     console.error('[dbGetListings] CATCH:', e?.message)
+    opts?.onError?.()
     return []
   }
 }
@@ -284,10 +290,18 @@ export async function dbCreateAccount(acc: DbAccount): Promise<{ ok: boolean; er
   } catch (e: any) { return { ok: false, error: e?.message || 'Unknown' } }
 }
 
+// `id` here is the Supabase Auth uid (ProfileScreen's only caller passes
+// user.id, i.e. authUser.id from buildUser() in auth.ts) — NOT
+// accounts.id, which is stored as "auth_"+uid. Matching against `id`
+// silently updates zero rows (no error, since RLS/eq just filters to
+// nothing) — every profile edit (name/phone/avatar) was a silent no-op.
+// auth_id is the raw uid column and what RLS's own policy already checks
+// (`auth_id = auth.uid()`), so filtering on it here is both correct and
+// consistent with that policy.
 export async function dbUpdateAccount(id: string, updates: Partial<DbAccount>): Promise<boolean> {
   if (!isSupabaseReady()) return false
   try {
-    const { error } = await supabase.from('accounts').update(updates).eq('id', id)
+    const { error } = await supabase.from('accounts').update(updates).eq('auth_id', id)
     if (error) { console.error('[dbUpdateAccount]', error.message); return false }
     return true
   } catch (e: any) { console.error('[dbUpdateAccount] CATCH:', e?.message); return false }

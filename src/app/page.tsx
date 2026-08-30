@@ -17,7 +17,7 @@ import { useChatSoundListener } from '@/components/ChatsScreen'
 import SplashScreen from '@/components/SplashScreen'
 import AuthScreen from '@/components/AuthScreen'
 import BottomNav from '@/components/BottomNav'
-import HomeScreen from '@/components/HomeScreen'
+import HomeScreen, { BASE_HOME_FILTERS, type HomeFilters } from '@/components/HomeScreen'
 import FavoritesScreen from '@/components/FavoritesScreen'
 import ChatsScreen from '@/components/ChatsScreen'
 import RequestsScreen from '@/components/RequestsScreen'
@@ -25,7 +25,8 @@ import ProfileScreen from '@/components/ProfileScreen'
 import DetailScreen from '@/components/DetailScreen'
 import AddListingScreen from '@/components/AddListingScreen'
 import FeedbackScreen from '@/components/FeedbackScreen'
-import AllListingsScreen from '@/components/AllListingsScreen'
+import AllListingsScreen, { BASE_CATALOG_FILTERS, type CatalogFilters } from '@/components/AllListingsScreen'
+import DesktopHeader from '@/components/DesktopHeader'
 import Toast from '@/components/Toast'
 import InstallPrompt from '@/components/InstallPrompt'
 
@@ -64,6 +65,18 @@ function AppInner() {
   const [showAll, setShowAll] = useState<{ title: string; items: ListingData[] } | null>(null)
   const [dbListings, setDbListings] = useState<ListingData[]>([])
   const [dbLoaded, setDbLoaded] = useState(false)
+  const [homeLoadError, setHomeLoadError] = useState(false)
+  // Lifted up (not local to HomeScreen/AllListingsScreen) so applied
+  // filters survive navigating to a listing and back — those screens
+  // unmount while DetailScreen is shown, which would otherwise reset them.
+  const [homeFilters, setHomeFilters] = useState<HomeFilters>(BASE_HOME_FILTERS)
+  const [catalogFilters, setCatalogFilters] = useState<CatalogFilters>(BASE_CATALOG_FILTERS)
+  // Sort and applied search query are kept separately for Home vs Catalog —
+  // each screen's browsing state is independent, matching the filters above.
+  const [homeSortBy, setHomeSortBy] = useState('date')
+  const [homeSearchQuery, setHomeSearchQuery] = useState('')
+  const [catalogSortBy, setCatalogSortBy] = useState('default')
+  const [catalogSearchQuery, setCatalogSearchQuery] = useState('')
   const [favs, setFavs] = useState<number[]>([])
   const [refreshTick, setRefreshTick] = useState(0)
   const [unreadMsgs, setUnreadMsgs] = useState(0)
@@ -112,9 +125,14 @@ function AppInner() {
   )
 
   const loadListings = useCallback(async () => {
-    const data = await dbGetListings()
+    let failed = false
+    const data = await dbGetListings({ onError: () => { failed = true } })
     setDbListings(data)
     setDbLoaded(true)
+    // Only surface the error state when there's nothing to show at all —
+    // if we already had listings from a previous successful load, keep
+    // showing them rather than blocking the whole home feed (spec §05).
+    setHomeLoadError(failed && data.length === 0)
     setRefreshTick(t => t + 1)
   }, [])
 
@@ -209,6 +227,21 @@ function AppInner() {
     )
     return () => { channel.unsubscribe() }
   }, [])
+
+  // Desktop wide-shell escape hatch (D.1/D.2): layout.tsx's .app-shell
+  // caps every screen at 430px in normal document flow. Screens that
+  // have been adapted for desktop (Home, Catalog, Detail) get a body
+  // class that lifts that cap via CSS — see .app-shell / body.wide-shell
+  // in globals.css. Everything else keeps rendering in the untouched
+  // 430px column. This toggles a class only — no fixed positioning, so
+  // the page keeps a single normal document-flow scroll.
+  const isWideShell = phase === 'auth'
+    || (phase === 'app' && !showFeedback && !showAdd && !editingListing
+      && (!!selectedListing || !!showAll || ['home', 'profile', 'messages', 'favorites', 'requests'].includes(activeScreen)))
+  useEffect(() => {
+    document.body.classList.toggle('wide-shell', isWideShell)
+    return () => { document.body.classList.remove('wide-shell') }
+  }, [isWideShell])
 
   const handleRefresh = useCallback(async () => {
     await loadListings()
@@ -420,34 +453,40 @@ function AppInner() {
   const goScreen = (s: Screen) => { setActiveScreen(s); scrollTop() }
 
   if (phase === 'splash') return <><SplashScreen onEnter={() => setPhase('auth')} onGuest={handleGuest} /><Toast msg={toastMsg} action={toastAction} /></>
-  if (phase === 'auth') return <><AuthScreen onDone={handleLogin} onGuest={handleGuest} /><Toast msg={toastMsg} action={toastAction} /></>
+  if (phase === 'auth') return (
+    <>
+      <DesktopHeader user={null} onLogin={() => setPhase('auth')} onProfile={() => goScreen('profile')} onAddListing={goAddListing} onGoHome={handleGuest} onComingSoon={(label) => showToast(`🔜 ${label} — скоро буде доступно`)} />
+      <AuthScreen onDone={handleLogin} onGuest={handleGuest} />
+      <Toast msg={toastMsg} action={toastAction} />
+    </>
+  )
   if (showFeedback) return <><FeedbackScreen onBack={() => { setShowFeedback(false); scrollTop() }} /><Toast msg={toastMsg} action={toastAction} /></>
   if (showAdd || editingListing) return <><AddListingScreen user={user} onBack={() => { setShowAdd(false); setEditingListing(null); scrollTop() }} onCreated={handleAddListing} onUpdated={handleUpdateListing} editListing={editingListing || undefined} onGoProfile={() => { setShowAdd(false); setEditingListing(null); setActiveScreen('profile'); scrollTop() }} /><Toast msg={toastMsg} action={toastAction} /></>
   if (selectedListing) return (
     <>
+      <DesktopHeader user={user} onLogin={() => setPhase('auth')} onProfile={() => goScreen('profile')} onAddListing={goAddListing} onGoHome={() => { setSelectedListing(null); setShowAll(null); savedShowAll.current = null; goScreen('home') }} onComingSoon={(label) => showToast(`🔜 ${label} — скоро буде доступно`)} />
       <DetailScreen
+        onGoHome={() => { setSelectedListing(null); setShowAll(null); savedShowAll.current = null; goScreen('home') }}
         listing={selectedListing}
         isFavorite={favs.includes(selectedListing.id)}
         onBack={() => {
           setSelectedListing(null)
           const prev = savedShowAll.current
           savedShowAll.current = null
-          if (prev) {
-            // came from AllListingsScreen — restore it, then scroll back
-            setShowAll(prev)
-            const y = savedScrollY.current
-            requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior }))
-          } else {
-            const y = savedScrollY.current
-            requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior }))
-          }
+          const y = savedScrollY.current
+          if (prev) setShowAll(prev) // came from AllListingsScreen — restore it, then scroll back
+          // setTimeout(0) instead of requestAnimationFrame: still runs after
+          // the DOM commits the screen swap above, but — unlike rAF — isn't
+          // gated on an actual paint/compositor frame, so it fires reliably
+          // even if the tab is momentarily backgrounded/throttled.
+          setTimeout(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior }), 0)
         }}
         onFavorite={toggleFav}
         onSimilar={openListing}
         allListings={visibleListings}
         user={user}
         isGuest={isGuest && !user}
-        onLogin={() => { setSelectedListing(null); setPhase('auth') }}
+        onLogin={() => setPhase('auth')}
         showToast={showToast}
         onOpenChat={(chat) => {
           setChatOriginListing(selectedListing)
@@ -465,11 +504,18 @@ function AppInner() {
     </>
   )
   if (showAll) return (
-    <><AllListingsScreen title={showAll.title} listings={showAll.items} allListings={visibleListings} favorites={favs} onListing={openListing} onFavorite={toggleFav} onBack={() => { const y = savedScrollY.current; setShowAll(null); requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior })) }} /><Toast msg={toastMsg} action={toastAction} /></>
+    <>
+      <DesktopHeader user={user} onLogin={() => setPhase('auth')} onProfile={() => goScreen('profile')} onAddListing={goAddListing} onGoHome={() => { setShowAll(null); goScreen('home') }} onComingSoon={(label) => showToast(`🔜 ${label} — скоро буде доступно`)} />
+      <AllListingsScreen title={showAll.title} listings={showAll.items} allListings={visibleListings} favorites={favs} onListing={openListing} onFavorite={toggleFav} onBack={() => { const y = savedScrollY.current; setShowAll(null); requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior })) }} appliedFilters={catalogFilters} onAppliedFiltersChange={setCatalogFilters} sortBy={catalogSortBy} onSortByChange={setCatalogSortBy} searchQuery={catalogSearchQuery} onSearchQueryChange={setCatalogSearchQuery} />
+      <Toast msg={toastMsg} action={toastAction} />
+    </>
   )
 
   return (
     <>
+      {(activeScreen === 'home' || activeScreen === 'profile' || activeScreen === 'messages' || activeScreen === 'favorites' || activeScreen === 'requests') && (
+        <DesktopHeader user={user} onLogin={() => setPhase('auth')} onProfile={() => goScreen('profile')} onAddListing={goAddListing} onGoHome={() => goScreen('home')} onComingSoon={(label) => showToast(`🔜 ${label} — скоро буде доступно`)} />
+      )}
       <div>
         {activeScreen === 'home' && (
           <HomeScreen
@@ -483,6 +529,14 @@ function AppInner() {
             onLogin={() => setPhase('auth')}
             onAddListing={goAddListing}
             loading={!dbLoaded}
+            loadError={homeLoadError}
+            onRetryLoad={loadListings}
+            appliedFilters={homeFilters}
+            onAppliedFiltersChange={setHomeFilters}
+            sortBy={homeSortBy}
+            onSortByChange={setHomeSortBy}
+            searchQuery={homeSearchQuery}
+            onSearchQueryChange={setHomeSearchQuery}
             onProfile={() => goScreen('profile')}
             onRefresh={handleRefresh}
             onShowAll={(title, items) => { savedScrollY.current = window.scrollY; setShowAll({ title, items }); scrollTop() }}
@@ -502,7 +556,7 @@ function AppInner() {
         )}
         {activeScreen === 'favorites' && <FavoritesScreen favorites={favs} allListings={visibleListings} onListing={openListing} onFavorite={toggleFav} onRefresh={handleRefresh} />}
         {activeScreen === 'requests' && <RequestsScreen user={user} isGuest={isGuest && !user} listings={allListings} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onListing={openListing} onDelete={handleArchiveListing} onRestore={handleRestoreListing} onPermanentDelete={handleDeleteListing} onEdit={(l) => { setEditingListing(l); scrollTop() }} onRefresh={handleRefresh} onBack={() => { setActiveScreen('profile'); scrollTop() }} />}
-        {activeScreen === 'profile' && <ProfileScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onFeedback={() => { setShowFeedback(true); scrollTop() }} favCount={favs.length} onLogout={handleLogout} showToast={showToast} listings={allListings} onListing={openListing} onDeleteListing={handleDeleteListing} onRefresh={handleRefresh} onMyListings={() => { setActiveScreen('requests'); scrollTop() }} onEditListing={(l) => { setEditingListing(l); scrollTop() }} onArchiveListing={handleArchiveListing} />}
+        {activeScreen === 'profile' && <ProfileScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onFeedback={() => { setShowFeedback(true); scrollTop() }} favCount={favs.length} onLogout={handleLogout} showToast={showToast} listings={allListings} onListing={openListing} onDeleteListing={handleDeleteListing} onRefresh={handleRefresh} onMyListings={() => { setActiveScreen('requests'); scrollTop() }} onEditListing={(l) => { setEditingListing(l); scrollTop() }} onArchiveListing={handleArchiveListing} onGoFavorites={() => goScreen('favorites')} onGoMessages={() => goScreen('messages')} />}
       </div>
       {!chatWindowOpen && <BottomNav active={activeScreen} onChange={goScreen} favCount={favs.length} unreadMessages={unreadMsgs} />}
       <Toast msg={toastMsg} action={toastAction} />

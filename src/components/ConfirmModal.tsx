@@ -1,5 +1,5 @@
 'use client'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 interface Props {
   title: string
@@ -18,11 +18,38 @@ export default function ConfirmModal({
   danger = false,
   onConfirm, onCancel,
 }: Props) {
-  // Close on Escape
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  const titleId = 'confirm-modal-title'
+
+  // Spec §04: modal contract — Escape closes, focus is trapped inside while
+  // open, background scroll is locked, and focus returns to whatever
+  // triggered the modal once it closes.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel() }
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    cancelRef.current?.focus()
+
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onCancel(); return }
+      if (e.key !== 'Tab') return
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+      if (!focusable || focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
     document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+      previouslyFocused?.focus()
+    }
   }, [onCancel])
 
   return (
@@ -38,6 +65,10 @@ export default function ConfirmModal({
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         onClick={e => e.stopPropagation()}
         style={{
           background: '#141928',
@@ -60,7 +91,7 @@ export default function ConfirmModal({
           {danger ? '🗑️' : '❓'}
         </div>
 
-        <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
+        <div id={titleId} style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
           {title}
         </div>
         <div style={{ fontSize: 14, color: '#A0A8BC', lineHeight: 1.55, marginBottom: 24 }}>
@@ -69,6 +100,7 @@ export default function ConfirmModal({
 
         <div style={{ display: 'flex', gap: 10 }}>
           <button
+            ref={cancelRef}
             onClick={onCancel}
             style={{
               flex: 1, padding: '13px',

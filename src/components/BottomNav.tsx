@@ -51,7 +51,7 @@ const items: { id: Screen; label: string }[] = [
 
 export default function BottomNav({ active, onChange, favCount = 0, unreadMessages = 0 }: Props) {
   return (
-    <div style={{
+    <div className="bnav" style={{
       position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
       width: '100%', maxWidth: 430,
       background: '#0D1018',

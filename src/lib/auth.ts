@@ -205,6 +205,49 @@ export async function changePassword(
   return { ok: true }
 }
 
+// Sends a password-recovery email; the link redirects to /auth/reset-password
+// with a recovery session Supabase's client picks up automatically
+// (detectSessionInUrl: true, see supabase.ts) — that page then calls
+// supabase.auth.updateUser({password}) while that session is active.
+export async function requestPasswordReset(email: string): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseReady()) return { ok: false, error: 'База даних не налаштована.' }
+  const { error } = await supabase.auth.resetPasswordForEmail(email.toLowerCase().trim(), {
+    redirectTo: `${window.location.origin}/auth/reset-password`,
+  })
+  if (error) return { ok: false, error: mapAuthError(error.message) }
+  return { ok: true }
+}
+
+// Called from /auth/reset-password, only while a PASSWORD_RECOVERY session
+// (from the emailed link) is active — see requestPasswordReset() above.
+export async function updatePasswordAfterReset(newPassword: string): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseReady()) return { ok: false, error: 'База даних не налаштована.' }
+  if (newPassword.length < 6) return { ok: false, error: 'Пароль має містити щонайменше 6 символів.' }
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) return { ok: false, error: mapAuthError(error.message) }
+  return { ok: true }
+}
+
+// Real OAuth call only — never simulates a signed-in state. If the Google
+// provider isn't actually enabled in the Supabase project, Supabase itself
+// returns an error here (e.g. "Unsupported provider"); the caller shows
+// that error as-is rather than pretending the sign-in succeeded. The UI
+// only renders this option at all when NEXT_PUBLIC_GOOGLE_AUTH_ENABLED=true,
+// which should only be set once the provider is actually configured in the
+// Supabase dashboard + Google Cloud Console.
+export async function signInWithGoogle(): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseReady()) return { ok: false, error: 'База даних не налаштована.' }
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin },
+  })
+  // On success this navigates away to Google immediately — there's no
+  // "signed in" state to return here at all; execution only reaches this
+  // return on failure (e.g. provider not enabled, network error).
+  if (error) return { ok: false, error: mapAuthError(error.message) }
+  return { ok: true }
+}
+
 // Supabase sends a confirmation link to the NEW address; the email only
 // changes once that link is clicked — unlike the old changeEmail(), this
 // no longer takes effect immediately. That's a real, deliberate behavior
