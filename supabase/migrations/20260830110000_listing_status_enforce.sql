@@ -39,7 +39,7 @@
 --      draft, на уровне БД.
 --   3. CHECK: rejection_reason обязателен при status='rejected'.
 --   4. check_publish_rate_limit() (SECURITY DEFINER) — та же логика
---      лимита 5/10мин + 20/24ч из 20260818_listing_rate_limit.sql,
+--      лимита 5/10мин + 20/24ч из 20260819181213_listing_rate_limit.sql,
 --      вызывается явно, не отдельным триггером.
 --   5. enforce_listing_lifecycle() (SECURITY DEFINER) — единственная
 --      функция, решающая: разрешён ли переход; нужен ли принудительный
@@ -174,7 +174,7 @@ revoke execute on function public.check_publish_rate_limit() from public, anon, 
 -- SECURITY DEFINER — нужно, чтобы вызывать check_publish_rate_limit(),
 -- у которого EXECUTE отозван у authenticated. auth.uid()/is_admin()
 -- внутри по-прежнему возвращают реальные значения текущего запроса
--- (тот же принцип, что в 20260818_listing_rate_limit.sql).
+-- (тот же принцип, что в 20260819181213_listing_rate_limit.sql).
 --
 -- Гарантии (проверено построчно):
 --   - NEW.is_active клиента НИГДЕ не читается — ни в одном if/elsif
@@ -652,7 +652,7 @@ drop function if exists public.enforce_listing_rate_limit();
 -- поглощены enforce_listing_lifecycle() + check_publish_rate_limit() выше
 -- — эта строка удаляет их насовсем, не только откатывает A. Точное
 -- содержимое ОРИГИНАЛЬНОЙ (до A) версии для справки —
--- supabase/migrations/20260818_listing_rate_limit.sql, ни этот файл, ни A
+-- supabase/migrations/20260819181213_listing_rate_limit.sql, ни этот файл, ни A
 -- его не меняют, только перестают использовать.
 
 drop trigger if exists enforce_listing_status_policy on public.listings;
@@ -670,7 +670,7 @@ create trigger enforce_listing_lifecycle
 -- 6. RLS — полный пересмотр по операциям, admin отдельными policy
 -- ============================================================================
 -- Удаляем ВСЕ существующие policy на listings по точным именам (из
--- 20260806_auth_rls_hardening.sql), создаём заново — так проще
+-- 20260811191254_stage2_rls_hardening.sql), создаём заново — так проще
 -- проверить полный набор целиком, чем угадывать, что уже перекрыто.
 
 drop policy if exists "anyone can read active listings"                on public.listings;
@@ -788,7 +788,7 @@ create policy "admin can delete any listing"
 -- ROLLBACK (справочно — НЕ выполняется автоматически)
 -- ============================================================================
 --
--- -- 6. RLS — назад к состоянию из 20260806_auth_rls_hardening.sql:
+-- -- 6. RLS — назад к состоянию из 20260811191254_stage2_rls_hardening.sql:
 -- drop policy if exists "admin can delete any listing"                on public.listings;
 -- drop policy if exists "owner can delete own draft or archived listings" on public.listings;
 -- drop policy if exists "admin can update any listing"                on public.listings;
@@ -811,7 +811,7 @@ create policy "admin can delete any listing"
 -- drop function if exists public.check_publish_rate_limit();
 --
 -- -- Восстановить исходный триггер лимита ДОСЛОВНО из
--- -- supabase/migrations/20260818_listing_rate_limit.sql (разделы
+-- -- supabase/migrations/20260819181213_listing_rate_limit.sql (разделы
 -- -- "2. Триггерная функция" и "3. Триггер на public.listings" —
 -- -- точная копия, не пересказ).
 --

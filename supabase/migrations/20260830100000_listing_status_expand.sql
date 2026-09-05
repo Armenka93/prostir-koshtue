@@ -211,7 +211,7 @@ alter table public.listings add column if not exists building_type text;
 -- ============================================================================
 -- Read-only аудит (2026-08-31, живая БД, без изменений) подтвердил: сейчас
 -- на public.listings есть РОВНО один активный триггер —
--- enforce_listing_rate_limit (BEFORE INSERT, из 20260818_listing_rate_limit.sql),
+-- enforce_listing_rate_limit (BEFORE INSERT, из 20260819181213_listing_rate_limit.sql),
 -- который считает лимит (5/10мин, 20/24ч) на КАЖДЫЙ INSERT в listings,
 -- вообще не зная о status (этой колонки не было, когда он писался).
 --
@@ -382,7 +382,7 @@ alter table public.listings alter column address  drop not null;
 -- ============================================================================
 --
 -- -- Раздел 1.2 — вернуть enforce_listing_rate_limit() к ОРИГИНАЛЬНОМУ телу
--- -- дословно из supabase/migrations/20260818_listing_rate_limit.sql
+-- -- дословно из supabase/migrations/20260819181213_listing_rate_limit.sql
 -- -- (create or replace function ... до "return new; end; $$;", без guard
 -- -- "if NEW.status is distinct from 'active' then return NEW; end if;").
 -- -- Триггер (имя/BEFORE INSERT) не трогать — он не создавался этим файлом.

@@ -5,10 +5,10 @@
  * getSession / onAuthStateChange. The `accounts` table is still used as a
  * profile store (name/phone/role/avatar_url), looked up by email — that
  * works today without any schema change. This file never inserts into
- * `accounts` itself: once supabase/migrations/20260806_auth_rls_hardening.sql
- * (STAGE 1) is applied, its handle_new_auth_user() trigger becomes the one
+ * `accounts` itself: once supabase/migrations/20260808072944_stage1_auth_bridge_columns_and_trigger.sql
+ * is applied, its handle_new_auth_user() trigger becomes the one
  * and only place that creates a profile row, keyed by auth_id — see the
- * comment in registerAccount() for what that means before STAGE 1 lands.
+ * comment in registerAccount() for what that means before that migration lands.
  *
  * The old hash-based accounts login (LEGACY section at the bottom of this
  * file) is kept for reference/rollback only — nothing in the app's live
@@ -21,8 +21,9 @@ import type { User } from '@/types'
 
 // Single source of admin status app-wide: accounts.role (via User.role,
 // populated below in buildUser()) — the SAME column public.is_admin() (the
-// RLS/trigger helper, see supabase/migrations/20260806_auth_rls_hardening.sql)
-// checks server-side. This is a UX gate ONLY (E.2.4 requirement 1) — it
+// RLS/trigger helper, see supabase/migrations/20260808072944_stage1_auth_bridge_columns_and_trigger.sql,
+// section 1.6 — defined there, used by the RLS policies in
+// 20260811191254_stage2_rls_hardening.sql) checks server-side. This is a UX gate ONLY (E.2.4 requirement 1) — it
 // decides what a client shows/hides, never what the database allows; a
 // user who forges a request around this check still hits the same RLS/
 // trigger every other request does. Previously duplicated locally in
@@ -108,11 +109,11 @@ export async function registerAccount(
 
   // The `accounts` profile row (name/phone/role/avatar_url) is created by a
   // single source: the handle_new_auth_user() DB trigger on auth.users, from
-  // supabase/migrations/20260806_auth_rls_hardening.sql (STAGE 1) — not by
-  // this client code. Deliberately NOT inserting into `accounts` here too:
-  // doing both would race the trigger and either duplicate the row (if keyed
-  // differently) or fight over who's authoritative for it. Until STAGE 1 is
-  // applied, no `accounts` row exists yet for a freshly-registered user —
+  // supabase/migrations/20260808072944_stage1_auth_bridge_columns_and_trigger.sql
+  // — not by this client code. Deliberately NOT inserting into `accounts` here
+  // too: doing both would race the trigger and either duplicate the row (if
+  // keyed differently) or fight over who's authoritative for it. Until that
+  // migration is applied, no `accounts` row exists yet for a freshly-registered user —
   // buildUser() below already falls back to auth user_metadata (name/phone)
   // and a default 'landlord' role in that case, so login/display still work;
   // only avatar_url and a DB-persisted role are unavailable until then.
@@ -165,8 +166,16 @@ export async function loginAccount(
 // itself. token_hash/type come from the confirmation link's query string
 // (?token_hash=...&type=signup), set by the "Confirm signup" email
 // template pointing at {{ .RedirectTo }} instead of the raw Supabase
-// /verify link — see supabase/migrations/20260806_auth_rls_hardening.sql's
-// neighboring notes for why a plain GET must never consume the token.
+// /verify link — a plain GET must never consume the token (email scanners/
+// link-preview bots follow GET links automatically, which would silently
+// burn a one-time confirmation token before the real user ever clicks it).
+// Normalization note (migration history fetch, 4th round audit): this
+// comment previously pointed at the original local draft migration file for
+// "neighboring notes" on this — neither of the two actually-applied remote
+// migrations that draft corresponds to (20260808072944_stage1_auth_bridge_columns_and_trigger.sql /
+// 20260811191254_stage2_rls_hardening.sql) contains any such notes, so the
+// cross-reference was already stale/inaccurate and has been dropped rather
+// than pointed at a file that doesn't contain this content either.
 export async function confirmEmailToken(
   tokenHash: string, type: string
 ): Promise<{ ok: boolean; error?: string }> {

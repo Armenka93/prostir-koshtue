@@ -73,7 +73,7 @@
 --   :'owner_uid'  — an ordinary authenticated user (any role != admin)
 --   :'admin_uid'  — a user whose public.accounts row has role = 'admin'
 --     (public.is_admin() must return true for them — see
---     20260806_auth_rls_hardening.sql, section 1.6)
+--     20260808072944_stage1_auth_bridge_columns_and_trigger.sql, section 1.6)
 -- Pass them as psql variables when invoking this file, e.g.:
 --   psql "$STAGING_DB_URL" \
 --     -v owner_uid="'11111111-1111-1111-1111-111111111111'" \

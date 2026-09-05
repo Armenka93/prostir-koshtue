@@ -896,9 +896,9 @@ export interface DbAccount {
   avatar_url?: string | null
   // Bridge to Supabase Auth (auth.users.id). Column + the trigger that
   // populates it (handle_new_auth_user()) are added by
-  // supabase/migrations/20260806_auth_rls_hardening.sql (STAGE 1) — no
-  // client code writes this field; it's typed here only so reads (e.g. a
-  // future dbFindAccountByAuthId()) have it available once STAGE 1 lands.
+  // supabase/migrations/20260808072944_stage1_auth_bridge_columns_and_trigger.sql
+  // — no client code writes this field; it's typed here only so reads (e.g. a
+  // future dbFindAccountByAuthId()) have it available once that migration lands.
   auth_id?: string | null
 }
 
