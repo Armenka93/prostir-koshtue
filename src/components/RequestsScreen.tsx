@@ -4,6 +4,7 @@ import { usePTR } from '@/hooks/usePTR'
 import PTRIndicator from './PTRIndicator'
 import ConfirmModal from './ConfirmModal'
 import EmptyState from './EmptyState'
+import { getStatusMeta, isLifecycleActionable } from '@/lib/listingStatus'
 import type { ListingData, User } from '@/types'
 
 interface Props {
@@ -12,20 +13,40 @@ interface Props {
   listings: ListingData[]
   onLogin: () => void
   onAddListing: () => void
-  onListing: (l: ListingData) => void
-  onDelete: (id: number) => void
-  onRestore: (id: number) => void
-  onPermanentDelete: (id: number) => void
-  onEdit: (l: ListingData) => void
+  onListing: (l: ListingData) => void            // public DetailScreen — active listings only
+  onViewReadOnly: (l: ListingData) => void        // pending_review — EditListingForm in read-only mode
+  onEdit: (l: ListingData) => void                // active/paused/archived/rejected — EditListingForm, editable
+  onContinueDraft: (l: ListingData) => void        // AddListingWizard pinned to this draft's id
+  onDeleteDraft: (l: ListingData) => Promise<boolean>
+  onPause: (id: number) => Promise<boolean>
+  onArchive: (id: number) => Promise<boolean>      // active/paused → archived
+  onRestore: (id: number) => Promise<boolean>      // paused/archived → active
+  onDeleteArchived: (l: ListingData) => Promise<boolean>
   onRefresh?: () => Promise<void>
   onBack?: () => void
 }
 
-type ConfirmState = { type: 'archive' | 'permanent'; id: number } | null
+// A single, unambiguous confirmation request — one ConfirmModal instance
+// for the whole screen (requirement 7), never one per card.
+type ConfirmState =
+  | { type: 'archive'; id: number }
+  | { type: 'delete-draft'; listing: ListingData }
+  | { type: 'delete-archived'; listing: ListingData }
+  | null
+
+interface ActionItem {
+  key: string
+  label: string
+  onClick: () => void
+  danger?: boolean
+  color?: string
+}
 
 // Desktop-only per-card "⋮" management menu (see .requests-desktop-only) —
-// mobile keeps its existing always-visible three-button row untouched.
-function ManageMenu({ items }: { items: { label: string; onClick: () => void; danger?: boolean }[] }) {
+// mobile keeps its own always-visible button row (see below). Closes on
+// Escape, on an outside click, and (via the shared onClick wrapper each
+// item already goes through) right after any action fires.
+function ManageMenu({ items, disabled }: { items: ActionItem[]; disabled?: boolean }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -36,20 +57,22 @@ function ManageMenu({ items }: { items: { label: string; onClick: () => void; da
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('mousedown', onDocClick); document.removeEventListener('keydown', onKey) }
   }, [open])
+  if (items.length === 0) return null
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button
-        onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+        onClick={e => { e.stopPropagation(); if (!disabled) setOpen(o => !o) }}
+        disabled={disabled}
         aria-label="Керувати оголошенням" aria-haspopup="menu" aria-expanded={open}
-        style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(15,17,23,.8)', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      >⋮</button>
+        style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(15,17,23,.8)', border: 'none', color: disabled ? '#4B5563' : '#fff', fontSize: 16, cursor: disabled ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >{disabled ? '⏳' : '⋮'}</button>
       {open && (
-        <div role="menu" style={{ position: 'absolute', top: 38, right: 0, background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 12, padding: 6, minWidth: 190, boxShadow: '0 8px 24px rgba(0,0,0,.4)', zIndex: 5 }}>
+        <div role="menu" style={{ position: 'absolute', top: 38, right: 0, background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 12, padding: 6, minWidth: 210, boxShadow: '0 8px 24px rgba(0,0,0,.4)', zIndex: 5 }}>
           {items.map(item => (
             <button
-              key={item.label} role="menuitem"
+              key={item.key} role="menuitem"
               onClick={e => { e.stopPropagation(); setOpen(false); item.onClick() }}
-              style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: item.danger ? '#EF4444' : '#fff', fontSize: 14, padding: '10px 12px', borderRadius: 8, cursor: 'pointer' }}
+              style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', color: item.danger ? '#EF4444' : (item.color || '#fff'), fontSize: 14, padding: '10px 12px', borderRadius: 8, cursor: 'pointer' }}
             >{item.label}</button>
           ))}
         </div>
@@ -58,18 +81,53 @@ function ManageMenu({ items }: { items: { label: string; onClick: () => void; da
   )
 }
 
-export default function RequestsScreen({ user, isGuest, listings, onLogin, onAddListing, onListing, onDelete, onRestore, onPermanentDelete, onEdit, onRefresh, onBack }: Props) {
+export default function RequestsScreen({
+  user, isGuest, listings, onLogin, onAddListing, onListing, onViewReadOnly, onEdit,
+  onContinueDraft, onDeleteDraft, onPause, onArchive, onRestore, onDeleteArchived,
+  onRefresh, onBack,
+}: Props) {
   const ptr = usePTR(onRefresh)
   const [tab, setTab] = useState<'active' | 'archive'>('active')
   const [confirmState, setConfirmState] = useState<ConfirmState>(null)
+  // Requirement 8: per-card busy tracking — the ONLY thing that disables a
+  // card's own buttons/menu; no other card is affected, and a second click
+  // on the same card while its own action is in flight is a no-op (see
+  // runBusy below), not a second request.
+  const [busyIds, setBusyIds] = useState<Set<number>>(new Set())
+
+  async function runBusy(id: number, action: () => Promise<boolean>) {
+    if (busyIds.has(id)) return
+    setBusyIds(prev => new Set(prev).add(id))
+    try {
+      await action()
+    } finally {
+      setBusyIds(prev => { const n = new Set(prev); n.delete(id); return n })
+    }
+  }
+
   const mineAll = listings.filter(l => {
     if (!user) return false
     // ownerId (listings.owner_id) is the primary check going forward —
     // userId/'me'/ownerName stay as fallbacks for compatibility.
     return l.ownerId === user.id || l.userId === user.id || l.userId === 'me' || l.ownerName === user.name
   })
-  const mine = mineAll.filter(l => l.isActive !== false)
-  const archived = mineAll.filter(l => l.isActive === false)
+
+  // status-driven grouping (requirement 1/7) — NOT the old plain is_active
+  // split. Every non-archived status (draft/pending_review/rejected/
+  // active/paused) lives in the "active" tab together, each rendered with
+  // its own status pill and its own allowed actions; only 'archived' goes
+  // to the archive tab. A row whose status is still null (pre-Migration-A
+  // / not yet backfilled) falls back to the legacy isActive signal so it
+  // at least lands in a sensible tab, but see getStatusMeta/
+  // isLifecycleActionable below — it never gets lifecycle BUTTONS either
+  // way.
+  function tabOf(l: ListingData): 'active' | 'archive' {
+    if (l.status === 'archived') return 'archive'
+    if (l.status != null) return 'active'
+    return l.isActive === false ? 'archive' : 'active'
+  }
+  const mine = mineAll.filter(l => tabOf(l) === 'active')
+  const archived = mineAll.filter(l => tabOf(l) === 'archive')
 
   if (!user) {
     return (
@@ -100,6 +158,55 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
   }
 
   const list = tab === 'active' ? mine : archived
+
+  // Requirement 1/6 — the full action matrix, one place. Returns [] for a
+  // status this screen has nothing to offer for (pending_review — view
+  // only, handled separately below; unknown/null status — lifecycle
+  // actions refused outright per requirement 6).
+  function buildActions(l: ListingData): ActionItem[] {
+    if (!isLifecycleActionable(l.status)) return []
+    const busy = busyIds.has(l.id)
+    const act = (fn: () => Promise<boolean>) => () => runBusy(l.id, fn)
+    switch (l.status) {
+      case 'draft':
+        return [
+          { key: 'continue', label: '✏️ Продовжити заповнення', onClick: () => onContinueDraft(l) },
+          { key: 'delete', label: '🗑️ Видалити чернетку', danger: true, onClick: () => setConfirmState({ type: 'delete-draft', listing: l }) },
+        ]
+      case 'rejected':
+        return [
+          { key: 'fix', label: '✏️ Виправити', onClick: () => onEdit(l) },
+        ]
+      case 'active':
+        return [
+          { key: 'view', label: '👁️ Переглянути', onClick: () => onListing(l) },
+          { key: 'edit', label: '✏️ Редагувати', onClick: () => onEdit(l) },
+          { key: 'pause', label: '⏸️ Призупинити', onClick: act(() => onPause(l.id)) },
+          { key: 'archive', label: '📦 Архівувати', danger: true, onClick: () => setConfirmState({ type: 'archive', id: l.id }) },
+        ].map(a => busy ? { ...a, onClick: () => {} } : a)
+      case 'paused':
+        return [
+          { key: 'view', label: '👁️ Переглянути', onClick: () => onListing(l) },
+          { key: 'edit', label: '✏️ Редагувати', onClick: () => onEdit(l) },
+          { key: 'restore', label: '♻️ Відновити', color: '#22C55E', onClick: act(() => onRestore(l.id)) },
+          { key: 'archive', label: '📦 Архівувати', danger: true, onClick: () => setConfirmState({ type: 'archive', id: l.id }) },
+        ].map(a => busy ? { ...a, onClick: () => {} } : a)
+      case 'archived':
+        // "Переглянути" here is deliberately the READ-ONLY view (same
+        // callback pending_review uses), not the public DetailScreen — an
+        // archived listing is off the market, viewing it must stay inside
+        // the owner's own cabinet (requirement 1: "не как публичное
+        // объявление").
+        return [
+          { key: 'view', label: '👁️ Переглянути', onClick: () => onViewReadOnly(l) },
+          { key: 'edit', label: '✏️ Редагувати', onClick: () => onEdit(l) },
+          { key: 'restore', label: '♻️ Відновити', color: '#22C55E', onClick: act(() => onRestore(l.id)) },
+          { key: 'delete', label: '🗑️ Видалити назавжди', danger: true, onClick: () => setConfirmState({ type: 'delete-archived', listing: l }) },
+        ].map(a => busy ? { ...a, onClick: () => {} } : a)
+      default:
+        return []
+    }
+  }
 
   return (
     <div className="desktop-wide-screen">
@@ -163,46 +270,46 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
         <div className="requests-mobile-only">
         {list.map(listing => {
             const img = listing.images?.[0] || '/no-photo.png'
-            const isArchived = tab === 'archive'
+            const meta = getStatusMeta(listing.status)
+            const busy = busyIds.has(listing.id)
+            const actions = buildActions(listing)
+            const isPendingReview = listing.status === 'pending_review'
             return (
-              <div key={listing.id} style={{ background: '#1A1F2E', borderRadius: 16, overflow: 'hidden', marginBottom: 14, border: '1px solid #2A3045', opacity: isArchived ? 0.75 : 1 }}>
+              <div key={listing.id} style={{ background: '#1A1F2E', borderRadius: 16, overflow: 'hidden', marginBottom: 14, border: '1px solid #2A3045', opacity: meta.unknown ? 0.6 : 1 }}>
                 <div style={{ display: 'flex', gap: 12, padding: 12 }}>
-                  <img src={img} alt={listing.title} style={{ width: 90, height: 90, objectFit: 'cover', borderRadius: 10, flexShrink: 0, filter: isArchived ? 'grayscale(60%)' : 'none' }} loading="lazy" />
+                  <img src={img} alt={listing.title} style={{ width: 90, height: 90, objectFit: 'cover', borderRadius: 10, flexShrink: 0, filter: listing.status === 'archived' ? 'grayscale(60%)' : 'none' }} loading="lazy" />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 4 }}>{listing.title}</div>
-                    <div style={{ fontSize: 12, color: '#A0A8BC', marginBottom: 4 }}>📍 {listing.district} • {listing.area} м²</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: '#FF6B1A', marginBottom: 8 }}>{listing.price.toLocaleString('uk-UA')} ₴/міс</div>
-                    {isArchived ? (
-                      <span style={{ background: '#6B728022', color: '#A0A8BC', fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '2px 8px' }}>📦 В архіві</span>
-                    ) : (
-                      <span style={{ background: '#22C55E22', color: '#22C55E', fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '2px 8px' }}>✅ Активне</span>
-                    )}
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 4 }}>{listing.title || '(без назви)'}</div>
+                    <div style={{ fontSize: 12, color: '#A0A8BC', marginBottom: 4 }}>📍 {listing.district || '—'} {listing.area ? `• ${listing.area} м²` : ''}</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#FF6B1A', marginBottom: 8 }}>{listing.price ? `${listing.price.toLocaleString('uk-UA')} ₴/міс` : '—'}</div>
+                    <span style={{ background: meta.bg, color: meta.color, fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '2px 8px' }}>{meta.label}</span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', borderTop: '1px solid #2A3045' }}>
-                  {isArchived ? (
-                    <>
-                      <button onClick={() => onRestore(listing.id)} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', color: '#22C55E', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                        ♻️ Відновити
+                {listing.status === 'rejected' && listing.rejectionReason && (
+                  <div style={{ padding: '0 12px 10px', fontSize: 12, color: '#EF4444', lineHeight: 1.4 }}>
+                    Причина: {listing.rejectionReason}
+                  </div>
+                )}
+                {isPendingReview ? (
+                  <button onClick={() => onViewReadOnly(listing)} style={{ width: '100%', padding: '10px', background: 'none', border: 'none', borderTop: '1px solid #2A3045', color: '#2A9FD6', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    👁️ Переглянути (тільки перегляд)
+                  </button>
+                ) : actions.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', borderTop: '1px solid #2A3045' }}>
+                    {actions.map((a, i) => (
+                      <button key={a.key} onClick={a.onClick} disabled={busy} style={{
+                        flex: '1 1 50%', minWidth: '50%', padding: '10px',
+                        background: 'none', border: 'none',
+                        borderLeft: i % 2 === 1 ? '1px solid #2A3045' : 'none',
+                        borderTop: i >= 2 ? '1px solid #2A3045' : 'none',
+                        color: busy ? '#4B5563' : (a.danger ? '#EF4444' : (a.color || '#FFB020')),
+                        fontSize: 13, fontWeight: 600, cursor: busy ? 'default' : 'pointer',
+                      }}>
+                        {busy ? '⏳…' : a.label}
                       </button>
-                      <button onClick={() => setConfirmState({ type: 'permanent', id: listing.id })} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderLeft: '1px solid #2A3045', color: '#EF4444', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                        🗑️ Видалити назавжди
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button onClick={() => onListing(listing)} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', color: '#2A9FD6', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                        👁️ Переглянути
-                      </button>
-                      <button onClick={() => onEdit(listing)} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderLeft: '1px solid #2A3045', color: '#FFB020', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                        ✏️ Редагувати
-                      </button>
-                      <button onClick={() => setConfirmState({ type: 'archive', id: listing.id })} style={{ flex: 1, padding: '10px', background: 'none', border: 'none', borderLeft: '1px solid #2A3045', color: '#EF4444', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                        📦 Архівувати
-                      </button>
-                    </>
-                  )}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -211,28 +318,27 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
         <div className="requests-desktop-only">
         {list.map(listing => {
             const img = listing.images?.[0] || '/no-photo.png'
-            const isArchived = tab === 'archive'
+            const meta = getStatusMeta(listing.status)
+            const busy = busyIds.has(listing.id)
+            const actions = buildActions(listing)
+            const isPendingReview = listing.status === 'pending_review'
             return (
-              <div key={listing.id} style={{ background: '#1A1F2E', borderRadius: 16, overflow: 'hidden', border: '1px solid #2A3045', opacity: isArchived ? 0.75 : 1, position: 'relative' }}>
-                <img src={img} alt={listing.title} style={{ width: '100%', height: 160, objectFit: 'cover', filter: isArchived ? 'grayscale(60%)' : 'none' }} loading="lazy" />
+              <div key={listing.id} style={{ background: '#1A1F2E', borderRadius: 16, overflow: 'hidden', border: '1px solid #2A3045', opacity: meta.unknown ? 0.6 : 1, position: 'relative' }}>
+                <img src={img} alt={listing.title} style={{ width: '100%', height: 160, objectFit: 'cover', filter: listing.status === 'archived' ? 'grayscale(60%)' : 'none' }} loading="lazy" />
                 <div style={{ position: 'absolute', top: 10, right: 10 }}>
-                  <ManageMenu items={isArchived ? [
-                    { label: '♻️ Відновити', onClick: () => onRestore(listing.id) },
-                    { label: '🗑️ Видалити назавжди', onClick: () => setConfirmState({ type: 'permanent', id: listing.id }), danger: true },
-                  ] : [
-                    { label: '👁️ Переглянути', onClick: () => onListing(listing) },
-                    { label: '✏️ Редагувати', onClick: () => onEdit(listing) },
-                    { label: '📦 Архівувати', onClick: () => setConfirmState({ type: 'archive', id: listing.id }), danger: true },
-                  ]} />
+                  {isPendingReview ? (
+                    <button onClick={() => onViewReadOnly(listing)} aria-label="Переглянути" style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(15,17,23,.8)', border: 'none', color: '#2A9FD6', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>👁️</button>
+                  ) : (
+                    <ManageMenu items={actions} disabled={busy} />
+                  )}
                 </div>
                 <div style={{ padding: '14px 14px 16px' }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 4 }}>{listing.title}</div>
-                  <div style={{ fontSize: 12, color: '#A0A8BC', marginBottom: 4 }}>📍 {listing.district} • {listing.area} м²</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: '#FF6B1A', marginBottom: 8 }}>{listing.price.toLocaleString('uk-UA')} ₴/міс</div>
-                  {isArchived ? (
-                    <span style={{ background: '#6B728022', color: '#A0A8BC', fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '2px 8px' }}>📦 В архіві</span>
-                  ) : (
-                    <span style={{ background: '#22C55E22', color: '#22C55E', fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '2px 8px' }}>✅ Активне</span>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', marginBottom: 4 }}>{listing.title || '(без назви)'}</div>
+                  <div style={{ fontSize: 12, color: '#A0A8BC', marginBottom: 4 }}>📍 {listing.district || '—'} {listing.area ? `• ${listing.area} м²` : ''}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#FF6B1A', marginBottom: 8 }}>{listing.price ? `${listing.price.toLocaleString('uk-UA')} ₴/міс` : '—'}</div>
+                  <span style={{ background: meta.bg, color: meta.color, fontSize: 11, fontWeight: 600, borderRadius: 20, padding: '2px 8px' }}>{meta.label}</span>
+                  {listing.status === 'rejected' && listing.rejectionReason && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#EF4444', lineHeight: 1.4 }}>Причина: {listing.rejectionReason}</div>
                   )}
                 </div>
               </div>
@@ -245,17 +351,28 @@ export default function RequestsScreen({ user, isGuest, listings, onLogin, onAdd
 
       {confirmState && (
         <ConfirmModal
-          title={confirmState.type === 'archive' ? '📦 Перенести в архів?' : '🗑️ Видалити назавжди?'}
-          message={confirmState.type === 'archive'
-            ? 'Оголошення зникне з пошуку, але ви зможете відновити його пізніше з архіву.'
-            : 'Цю дію не можна скасувати — оголошення буде видалено назавжди.'}
+          title={
+            confirmState.type === 'archive' ? '📦 Перенести в архів?' :
+            confirmState.type === 'delete-draft' ? '🗑️ Видалити чернетку?' :
+            '🗑️ Видалити назавжди?'
+          }
+          message={
+            confirmState.type === 'archive'
+              ? 'Оголошення зникне з пошуку, але ви зможете відновити його пізніше з архіву.'
+              : confirmState.type === 'delete-draft'
+                ? 'Чернетка та всі завантажені фото будуть видалені без можливості відновлення.'
+                : 'Цю дію не можна скасувати — оголошення та його фото будуть видалені назавжди.'
+          }
           confirmLabel={confirmState.type === 'archive' ? 'Архівувати' : 'Видалити'}
-          danger={confirmState.type === 'permanent'}
+          danger={confirmState.type !== 'archive'}
           onCancel={() => setConfirmState(null)}
           onConfirm={() => {
-            if (confirmState.type === 'archive') onDelete(confirmState.id)
-            else onPermanentDelete(confirmState.id)
+            const st = confirmState
             setConfirmState(null)
+            if (!st) return
+            if (st.type === 'archive') runBusy(st.id, () => onArchive(st.id))
+            else if (st.type === 'delete-draft') runBusy(st.listing.id, () => onDeleteDraft(st.listing))
+            else runBusy(st.listing.id, () => onDeleteArchived(st.listing))
           }}
         />
       )}

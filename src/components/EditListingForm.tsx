@@ -1,20 +1,40 @@
 'use client'
 import { useState, useRef } from 'react'
 import type { ListingData, User } from '@/types'
-import { PROPERTY_TYPES, CONDITIONS, DISTRICTS } from '@/types'
-import { enrichNewListing } from '@/lib/listing-logic'
+import { PROPERTY_TYPES, CONDITIONS, DISTRICTS, UTILITIES_OPTIONS, BUILDING_TYPES } from '@/types'
 import { dbUploadListingImage } from '@/lib/db'
+import { getStatusMeta } from '@/lib/listingStatus'
+
+// Editing an ALREADY-PUBLISHED listing (active/paused/archived/rejected) —
+// deliberately NOT the E.2.2 five-step wizard. That wizard (AddListingWizard)
+// owns the draft → pending_review lifecycle (autosave, recovery, delete);
+// this form is the pre-existing single-screen editor, kept working for
+// RequestsScreen/ProfileScreen/DetailScreen's "Редагувати" entry points.
+//
+// E.2.3: this screen now sends ONLY the fields that actually changed (see
+// computeChangedFields below), never a blind full-row payload, and never
+// calls onUpdated at all if nothing changed (page.tsx's handleUpdateListing
+// is what actually routes to dbUpdateListingForReview for active/paused/
+// archived, or dbSubmitListingForReview for rejected — this component
+// doesn't need to know which; it just hands over the diff and lets the
+// caller decide based on editListing.status, which it already has).
+//
+// `readOnly` — used for pending_review's "Переглянути" (E.2.3 requirement
+// 1: view-only, no edit/delete/archive/resubmit while a listing is being
+// moderated). Deliberately implemented as a CSS-level lock (pointer-events:
+// none + no footer submit bar) rather than a `disabled` prop threaded
+// through every single input — this is a UX affordance for viewing, not a
+// security boundary (RLS/the trigger are what actually enforce it
+// server-side), so the lighter implementation is proportionate here.
 
 interface Props {
   user: User | null
+  editListing: ListingData
   onBack: () => void
-  onCreated: (data: Partial<ListingData>) => void
-  onGoProfile?: () => void
-  editListing?: ListingData
-  onUpdated?: (id: number, data: Partial<ListingData>) => void
+  onUpdated: (id: number, data: Partial<ListingData>) => void
+  readOnly?: boolean
 }
 
-const FALLBACK_IMGS: string[] = []
 const sanitize = (s: string) => s.replace(/<[^>]*>/g, '').trim()
 
 type FieldErrors = {
@@ -24,31 +44,102 @@ type FieldErrors = {
   address?: string
 }
 
-export default function AddListingScreen({ user, onBack, onCreated, onGoProfile, editListing, onUpdated }: Props) {
-  const isEdit = !!editListing
-  const [title, setTitle] = useState(editListing?.title || '')
-  const [type, setType] = useState(editListing?.type || 'Офіс')
-  const [price, setPrice] = useState(editListing ? String(editListing.price) : '')
-  const [area, setArea] = useState(editListing ? String(editListing.area) : '')
-  const [floor, setFloor] = useState(editListing?.floor != null ? String(editListing.floor) : '')
-  const [totalFloors, setTotalFloors] = useState(editListing?.totalFloors != null ? String(editListing.totalFloors) : '')
-  const [district, setDistrict] = useState(editListing?.district || 'Приморський')
-  const [address, setAddress] = useState(editListing?.address || '')
-  const [condition, setCondition] = useState(editListing?.condition || 'Євроремонт')
-  const [parking, setParking] = useState(editListing?.parking || false)
-  const [entrance, setEntrance] = useState(editListing?.separateEntrance || false)
-  const [description, setDescription] = useState(editListing?.description || '')
-  const [features, setFeatures] = useState(editListing?.features?.join(', ') || '')
+// The subset of ListingData this form can actually change, in one
+// comparable shape — used to detect "nothing actually changed" (E.2.3
+// requirement 2: never send an empty/no-op UPDATE, never force
+// pending_review for a no-op "edit").
+interface ComparableFields {
+  title: string; type: string; price: number; area: number
+  floor: number | null; totalFloors: number | null
+  district: string; address: string; city: string
+  condition: string | null; utilities: string | null; buildingType: string | null
+  parking: boolean; separateEntrance: boolean
+  description: string | null
+  images: string[]; features: string[]
+}
+
+function arraysEqual(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i])
+}
+
+// Returns only the fields that differ, in ListingData's own key names —
+// null if nothing changed at all.
+function computeChangedFields(original: ComparableFields, current: ComparableFields): Partial<ListingData> | null {
+  const changed: Partial<ListingData> = {}
+  let any = false
+  const setIfDiff = <K extends keyof ComparableFields>(key: K, listingKey: keyof ListingData) => {
+    const a = original[key]
+    const b = current[key]
+    const same = Array.isArray(a) && Array.isArray(b) ? arraysEqual(a, b) : a === b
+    if (!same) { (changed as any)[listingKey] = b; any = true }
+  }
+  setIfDiff('title', 'title')
+  setIfDiff('type', 'type')
+  setIfDiff('price', 'price')
+  setIfDiff('area', 'area')
+  setIfDiff('floor', 'floor')
+  setIfDiff('totalFloors', 'totalFloors')
+  setIfDiff('district', 'district')
+  setIfDiff('address', 'address')
+  setIfDiff('city', 'city')
+  setIfDiff('condition', 'condition')
+  setIfDiff('utilities', 'utilities')
+  setIfDiff('buildingType', 'buildingType')
+  setIfDiff('parking', 'parking')
+  setIfDiff('separateEntrance', 'separateEntrance')
+  setIfDiff('description', 'description')
+  setIfDiff('images', 'images')
+  setIfDiff('features', 'features')
+  return any ? changed : null
+}
+
+export default function EditListingForm({ user, editListing, onBack, onUpdated, readOnly }: Props) {
+  const status = editListing.status
+  const isRejected = status === 'rejected'
+  const isPublished = status === 'active' || status === 'paused' || status === 'archived'
+  const statusMeta = getStatusMeta(status)
+  // Captured ONCE, at mount — the baseline every later render's live field
+  // state is diffed against to detect "did anything actually change".
+  const [original] = useState<ComparableFields>(() => ({
+    title: editListing.title || '', type: editListing.type || 'Офіс',
+    price: editListing.price || 0, area: editListing.area || 0,
+    floor: editListing.floor ?? null, totalFloors: editListing.totalFloors ?? null,
+    district: editListing.district || '', address: editListing.address || '', city: editListing.city || 'Одеса',
+    condition: editListing.condition || null, utilities: editListing.utilities || null, buildingType: editListing.buildingType || null,
+    parking: editListing.parking || false, separateEntrance: editListing.separateEntrance || false,
+    description: editListing.description || null,
+    images: (editListing.images || []).filter(u => u !== '/no-photo.png'),
+    features: editListing.features || [],
+  }))
+  const [title, setTitle] = useState(editListing.title || '')
+  const [type, setType] = useState(editListing.type || 'Офіс')
+  const [price, setPrice] = useState(String(editListing.price ?? ''))
+  const [area, setArea] = useState(String(editListing.area ?? ''))
+  const [floor, setFloor] = useState(editListing.floor != null ? String(editListing.floor) : '')
+  const [totalFloors, setTotalFloors] = useState(editListing.totalFloors != null ? String(editListing.totalFloors) : '')
+  const [district, setDistrict] = useState(editListing.district || 'Приморський')
+  const [address, setAddress] = useState(editListing.address || '')
+  const [condition, setCondition] = useState(editListing.condition || 'Євроремонт')
+  const [utilities, setUtilities] = useState(editListing.utilities || '')
+  const [buildingType, setBuildingType] = useState(editListing.buildingType || '')
+  const [parking, setParking] = useState(editListing.parking || false)
+  const [entrance, setEntrance] = useState(editListing.separateEntrance || false)
+  const [description, setDescription] = useState(editListing.description || '')
+  const [features, setFeatures] = useState(editListing.features?.join(', ') || '')
   interface PhotoItem { previewUrl: string; uploadedUrl: string | null; uploading: boolean; failed: boolean }
   const [photos, setPhotos] = useState<PhotoItem[]>(() =>
-    (editListing?.images || []).map(url => ({ previewUrl: url, uploadedUrl: url, uploading: false, failed: false }))
+    (editListing.images || []).map(url => ({ previewUrl: url, uploadedUrl: url, uploading: false, failed: false }))
   )
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [photoError, setPhotoError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [noChangesNotice, setNoChangesNotice] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  // Same synchronous double-submit guard as the wizard — see
+  // AddListingWizard.tsx for the full reasoning (React state's `disabled`
+  // isn't guaranteed to commit before a second native click fires).
+  const submittingRef = useRef(false)
 
-  // Refs for scroll-to-first-error
   const titleRef = useRef<HTMLDivElement>(null)
   const priceRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
@@ -74,7 +165,7 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
   }
 
   const handleFiles = (files: FileList | null) => {
-    if (!files) return
+    if (!files || !user) return
     const remaining = 10 - photos.length
     const MAX_SIZE = 10 * 1024 * 1024
     Array.from(files).slice(0, remaining).forEach(file => {
@@ -82,7 +173,7 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
       const previewUrl = URL.createObjectURL(file)
       const entry: PhotoItem = { previewUrl, uploadedUrl: null, uploading: true, failed: false }
       setPhotos(p => [...p, entry])
-      dbUploadListingImage(file, user?.id || 'anonymous').then(url => {
+      dbUploadListingImage(file, user.id).then(url => {
         setPhotos(p => p.map(ph =>
           ph.previewUrl === previewUrl ? { ...ph, uploadedUrl: url, uploading: false, failed: !url } : ph
         ))
@@ -91,7 +182,8 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
   }
 
   const handleSubmit = () => {
-    // Validate all required fields at once
+    if (submittingRef.current) return
+
     const errors: FieldErrors = {}
     const trimmedTitle = title.trim()
     if (!trimmedTitle) errors.title = 'Введіть назву об\'єкту'
@@ -107,7 +199,6 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors)
-      // Scroll to and focus the first invalid field
       const firstRef =
         errors.title ? titleRef :
         errors.price ? priceRef :
@@ -125,70 +216,42 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
 
     setFieldErrors({})
     setPhotoError('')
-    setLoading(true)
+    setNoChangesNotice(false)
 
     const uploadedPhotoUrls = photos.map(p => p.uploadedUrl).filter((u): u is string => !!u)
-    const images = uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : ['/no-photo.png']
-
-    const commonFields = {
-      title: sanitize(title),
-      type,
-      price: parseInt(price),
-      area: parseInt(area),
-      floor: floor ? parseInt(floor) : null,
-      totalFloors: totalFloors ? parseInt(totalFloors) : null,
-      district,
-      address: sanitize(address),
-      city: 'Одеса',
-      condition,
-      parking,
-      separateEntrance: entrance,
+    const current: ComparableFields = {
+      title: sanitize(title), type,
+      price: parseInt(price), area: parseInt(area),
+      floor: floor ? parseInt(floor) : null, totalFloors: totalFloors ? parseInt(totalFloors) : null,
+      district, address: sanitize(address), city: 'Одеса',
+      condition, utilities: utilities || null, buildingType: buildingType || null,
+      parking, separateEntrance: entrance,
       description: description.trim() ? sanitize(description) : null,
-      images,
+      images: uploadedPhotoUrls,
       features: features ? features.split(',').map(f => sanitize(f)).filter(Boolean) : [],
     }
 
-    if (isEdit && editListing) {
-      onUpdated?.(editListing.id, commonFields)
+    // E.2.3 requirement 2: nothing to send — never an empty UPDATE, never
+    // a forced pending_review for a no-op "edit".
+    const changed = computeChangedFields(original, current)
+    if (!changed) {
+      setNoChangesNotice(true)
       return
     }
+    // images specifically needs the '/no-photo.png' placeholder restored
+    // for the actual payload if the edit really did empty the list — the
+    // diff itself compares against the placeholder-free list (matching
+    // `original`) so removing-then-not-replacing photos still counts as a
+    // real change.
+    if (changed.images) changed.images = changed.images.length > 0 ? changed.images : ['/no-photo.png']
 
-    const listingData: Partial<ListingData> = enrichNewListing({
-      id: Date.now(),
-      userId: user?.id || 'me',
-      ...commonFields,
-      isActive: true,
-      isNew: true,
-      isPromoted: false,
-      isFeatured: false,
-      views: 0, likes: 0, score: 0,
-      promotedUntil: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      ownerName: user?.name || null,
-      ownerPhone: user?.phone || null,
-    } as ListingData)
-
-    onCreated(listingData)
-  }
-
-  if (!user?.phone) {
-    return (
-      <div style={{ minHeight: '100dvh', background: '#0F1117', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
-        <div style={{ fontSize: 48, marginBottom: 20 }}>⚠️</div>
-        <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 12 }}>Потрібен номер телефону</div>
-        <div style={{ fontSize: 14, color: '#A0A8BC', lineHeight: 1.6, marginBottom: 24, maxWidth: 300 }}>
-          Без номера телефону не можна публікувати об'єкти. Зареєструйтесь з номером телефону.
-        </div>
-        <button onClick={onBack} style={{ width: '100%', maxWidth: 300, padding: '14px', background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 14, color: '#A0A8BC', fontSize: 15, cursor: 'pointer', marginBottom: 10 }}>← Назад</button>
-        {onGoProfile && <button onClick={onGoProfile} style={{ width: '100%', maxWidth: 300, padding: '14px', background: 'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border: 'none', borderRadius: 14, color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>Перейти в профіль</button>}
-      </div>
-    )
+    submittingRef.current = true
+    setLoading(true)
+    onUpdated(editListing.id, changed)
   }
 
   return (
     <div style={{ minHeight: '100dvh', background: '#0F1117' }}>
-      {/* Sticky header */}
       <div style={{
         padding: "44px 20px 14px",
         paddingTop: 'max(44px, env(safe-area-inset-top, 44px))',
@@ -198,12 +261,22 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
         borderBottom: '1px solid #1E2334',
       }}>
         <button onClick={onBack} style={{ background: '#1A1F2E', border: 'none', borderRadius: 10, width: 36, height: 36, color: '#fff', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>←</button>
-        <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{isEdit ? 'Редагувати об\'єкт' : 'Додати об\'єкт'}</span>
+        <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{readOnly ? "Перегляд об'єкту" : "Редагувати об'єкт"}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: statusMeta.color, background: statusMeta.bg, borderRadius: 20, padding: '4px 10px', flexShrink: 0 }}>{statusMeta.label}</span>
       </div>
 
-      <div style={{ padding: '20px 20px 120px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-
-        {/* Title */}
+      <div style={{ padding: '20px 20px 120px', display: 'flex', flexDirection: 'column', gap: 18, ...(readOnly ? { pointerEvents: 'none' as const, opacity: 0.7 } : {}) }}>
+        {isRejected && editListing.rejectionReason && (
+          <div style={{ background: '#EF444418', border: '1px solid #EF444444', borderRadius: 12, padding: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#EF4444', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.5px' }}>Причина відхилення</div>
+            <div style={{ fontSize: 14, color: '#fff', lineHeight: 1.5 }}>{editListing.rejectionReason}</div>
+          </div>
+        )}
+        {isPublished && !readOnly && (
+          <div style={{ background: '#FFB02018', border: '1px solid #FFB02044', borderRadius: 12, padding: 14, fontSize: 13, color: '#FFB020', lineHeight: 1.5 }}>
+            ⚠️ Після збереження оголошення буде повторно надіслано на модерацію та тимчасово зникне з каталогу.
+          </div>
+        )}
         <div ref={titleRef}>
           <label style={lbl}>Назва *</label>
           <input
@@ -215,7 +288,6 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
           {fieldErrors.title && <span style={errMsg}>⚠ {fieldErrors.title}</span>}
         </div>
 
-        {/* Type */}
         <div>
           <label style={lbl}>Тип нерухомості *</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -231,7 +303,6 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
           </div>
         </div>
 
-        {/* Price + Area */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div ref={priceRef}>
             <label style={lbl}>Ціна ₴/міс *</label>
@@ -257,7 +328,6 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
           </div>
         </div>
 
-        {/* Floor */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div>
             <label style={lbl}>Поверх</label>
@@ -269,7 +339,6 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
           </div>
         </div>
 
-        {/* District */}
         <div>
           <label style={lbl}>Район *</label>
           <select style={{ ...inpStyle(false), appearance: 'none' } as React.CSSProperties} value={district} onChange={e => setDistrict(e.target.value)}>
@@ -277,7 +346,6 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
           </select>
         </div>
 
-        {/* Address */}
         <div ref={addressRef}>
           <label style={lbl}>Адреса *</label>
           <input
@@ -290,7 +358,6 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
           {fieldErrors.address && <span style={errMsg}>⚠ {fieldErrors.address}</span>}
         </div>
 
-        {/* Condition */}
         <div>
           <label style={lbl}>Стан приміщення</label>
           <select style={{ ...inpStyle(false), appearance: 'none' } as React.CSSProperties} value={condition} onChange={e => setCondition(e.target.value)}>
@@ -298,7 +365,23 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
           </select>
         </div>
 
-        {/* Parking + Entrance */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div>
+            <label style={lbl}>Комунальні платежі</label>
+            <select style={{ ...inpStyle(false), appearance: 'none' } as React.CSSProperties} value={utilities} onChange={e => setUtilities(e.target.value)}>
+              <option value="">—</option>
+              {UTILITIES_OPTIONS.map(u => <option key={u}>{u}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={lbl}>Тип будівлі</label>
+            <select style={{ ...inpStyle(false), appearance: 'none' } as React.CSSProperties} value={buildingType} onChange={e => setBuildingType(e.target.value)}>
+              <option value="">—</option>
+              {BUILDING_TYPES.map(b => <option key={b}>{b}</option>)}
+            </select>
+          </div>
+        </div>
+
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => setParking(p => !p)} style={{
             flex: 1, padding: '12px 8px',
@@ -316,7 +399,6 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
           }}>🚪 Окремий вхід</button>
         </div>
 
-        {/* Description */}
         <div>
           <label style={lbl}>Опис</label>
           <textarea
@@ -327,7 +409,6 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
           />
         </div>
 
-        {/* Photos */}
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <label style={{ ...lbl, marginBottom: 0 }}>Фотографії</label>
@@ -371,42 +452,56 @@ export default function AddListingScreen({ user, onBack, onCreated, onGoProfile,
           </button>
         </div>
 
-        {/* Features */}
         <div>
           <label style={lbl}>Переваги (через кому)</label>
           <input style={inpStyle(false)} value={features} onChange={e => setFeatures(e.target.value)} placeholder="Ліфт, Кондиціонер, Охорона, Wi-Fi" />
         </div>
       </div>
 
-      {/* Fixed submit button */}
-      <div style={{
-        position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
-        width: '100%', maxWidth: 430,
-        padding: '12px 20px',
-        paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))',
-        background: 'linear-gradient(transparent, #0F1117 30%)',
-        zIndex: 100,
-      }}>
-        <button
-          onClick={handleSubmit}
-          disabled={loading || photos.some(p => p.uploading)}
-          style={{
-            width: '100%', padding: '16px',
-            background: (loading || photos.some(p => p.uploading)) ? '#4B5563' : 'linear-gradient(135deg,#FF6B1A,#FF8C3A)',
-            border: 'none', borderRadius: 14, color: '#fff', fontSize: 16, fontWeight: 700,
-            cursor: (loading || photos.some(p => p.uploading)) ? 'wait' : 'pointer',
-            fontFamily: 'Inter, sans-serif',
-            boxShadow: (loading || photos.some(p => p.uploading)) ? 'none' : '0 4px 20px rgba(255,107,26,.35)',
-            minHeight: 52, touchAction: 'manipulation',
-          }}
-        >
-          {loading
-            ? (isEdit ? '⏳ Збереження...' : '⏳ Публікація...')
-            : photos.some(p => p.uploading)
-              ? '⏳ Завантаження фото...'
-              : (isEdit ? '💾 Зберегти зміни' : '✅ Опублікувати об\'єкт')}
-        </button>
-      </div>
+      {readOnly ? (
+        <div style={{
+          position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
+          width: '100%', maxWidth: 430,
+          padding: '12px 20px',
+          paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))',
+          background: 'linear-gradient(transparent, #0F1117 30%)',
+          zIndex: 100,
+        }}>
+          <div style={{ width: '100%', padding: '16px', background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 14, color: '#A0A8BC', fontSize: 14, fontWeight: 600, textAlign: 'center' }}>
+            👁️ На модерації — редагування недоступне
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
+          width: '100%', maxWidth: 430,
+          padding: '12px 20px',
+          paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))',
+          background: 'linear-gradient(transparent, #0F1117 30%)',
+          zIndex: 100,
+        }}>
+          {noChangesNotice && <div style={{ textAlign: 'center', fontSize: 12, color: '#A0A8BC', marginBottom: 8 }}>Немає змін для збереження</div>}
+          <button
+            onClick={handleSubmit}
+            disabled={loading || photos.some(p => p.uploading)}
+            style={{
+              width: '100%', padding: '16px',
+              background: (loading || photos.some(p => p.uploading)) ? '#4B5563' : 'linear-gradient(135deg,#FF6B1A,#FF8C3A)',
+              border: 'none', borderRadius: 14, color: '#fff', fontSize: 16, fontWeight: 700,
+              cursor: (loading || photos.some(p => p.uploading)) ? 'wait' : 'pointer',
+              fontFamily: 'Inter, sans-serif',
+              boxShadow: (loading || photos.some(p => p.uploading)) ? 'none' : '0 4px 20px rgba(255,107,26,.35)',
+              minHeight: 52, touchAction: 'manipulation',
+            }}
+          >
+            {loading
+              ? (isRejected ? '⏳ Надсилання...' : '⏳ Збереження...')
+              : photos.some(p => p.uploading)
+                ? '⏳ Завантаження фото...'
+                : (isRejected ? '📤 Повторно надіслати на модерацію' : '💾 Зберегти зміни')}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

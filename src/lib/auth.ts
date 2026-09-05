@@ -19,6 +19,19 @@ import { supabase } from './supabase'
 import { dbFindAccount, isSupabaseReady } from './db'
 import type { User } from '@/types'
 
+// Single source of admin status app-wide: accounts.role (via User.role,
+// populated below in buildUser()) — the SAME column public.is_admin() (the
+// RLS/trigger helper, see supabase/migrations/20260806_auth_rls_hardening.sql)
+// checks server-side. This is a UX gate ONLY (E.2.4 requirement 1) — it
+// decides what a client shows/hides, never what the database allows; a
+// user who forges a request around this check still hits the same RLS/
+// trigger every other request does. Previously duplicated locally in
+// ProfileScreen.tsx — consolidated here so ModerationScreen and any future
+// admin-only UI share the exact same check instead of drifting copies.
+export function isAdmin(user: User | null | undefined): boolean {
+  return user?.role === 'admin'
+}
+
 // Supabase Auth returns one generic message for both "no such account" and
 // "wrong password" (Invalid login credentials) — deliberately, to avoid
 // leaking which emails are registered. That's a UX regression from the old

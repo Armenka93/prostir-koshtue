@@ -123,6 +123,12 @@ button { touch-action: manipulation; }
    every other, not-yet-adapted screen keeps the untouched 430px shell. */
 .app-shell { max-width: 430px; overflow-x: hidden; }
 
+/* E.2.2 — AddListingWizard's fixed footer nav is position:fixed (needs to
+   stay reachable while the step content above it scrolls), so it sits
+   OUTSIDE .app-shell and needs its own width cap on mobile too — see the
+   ≥768px override below for the wide-shell version. */
+.wizard-footer { max-width: 430px; }
+
 /* D.2 — detail card desktop layout hidden by default (mobile); the
    mobile markup (.detail-mobile-only) has no rule here so it keeps
    its natural default display, i.e. renders untouched. */
@@ -205,6 +211,17 @@ button { touch-action: manipulation; }
      desktop card grid with the "⋮" management menu. */
   .requests-mobile-only { display: none !important; }
   .requests-desktop-only { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+
+  /* E.2.2 — AddListingWizard. It's a form, not a card grid: full
+     1440px-wide content (like .desktop-wide-screen-inner gives Home's
+     catalog grid) would read badly for stacked inputs, so it gets its own
+     narrower centered column INSIDE that same wrapper — same fixed-header
+     clearance (padding-top already applied by .desktop-wide-screen-inner),
+     no second scroll container, just a width/centering constraint. The
+     fixed footer nav (Назад/Далі/Надіслати) matches the same width so its
+     buttons line up with the form above instead of stretching edge-to-edge. */
+  .wizard-inner { max-width: 640px; margin: 0 auto; }
+  .wizard-footer { max-width: 640px; }
 
   /* D.3.1 — Auth screen: center the card both axes, clear the fixed
      header (80px + gap, matching .desktop-wide-screen-inner above). */

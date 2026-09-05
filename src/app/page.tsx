@@ -3,14 +3,16 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import type { ListingData, User } from '@/types'
 import { MOCK_LISTINGS, MOCK_IDS, isMockListingId } from '@/lib/mockData'
 import { loadFavs, saveFavs } from '@/lib/storage'
-import { getSessionUser, subscribeAuthChanges, signOut } from '@/lib/auth'
+import { getSessionUser, subscribeAuthChanges, signOut, isAdmin } from '@/lib/auth'
 import {
-  dbGetListings, dbPublishListing, dbUpdateListing, dbDeleteListing,
-  dbArchiveListing, dbRestoreListing,
+  dbGetListings, dbUpdateListing, dbUpdateListingForReview, dbSubmitListingForReview,
+  dbArchiveListing, dbRestoreListing, dbPauseListing,
+  dbDeleteDraftListing, dbDeleteArchivedListing, dbDeleteListing,
   subscribeToListings, isSupabaseReady,
   dbGetUserFavorites, dbAddFavorite, dbRemoveFavorite,
-  ListingRateLimitError,
+  ListingLifecycleError,
 } from '@/lib/db'
+import { messageForLifecycleError } from '@/lib/listingStatus'
 import { getUnreadCount, type ChatRecord } from '@/lib/chats-db'
 import { useChatSoundListener } from '@/components/ChatsScreen'
 
@@ -22,8 +24,10 @@ import FavoritesScreen from '@/components/FavoritesScreen'
 import ChatsScreen from '@/components/ChatsScreen'
 import RequestsScreen from '@/components/RequestsScreen'
 import ProfileScreen from '@/components/ProfileScreen'
+import ModerationScreen from '@/components/ModerationScreen'
 import DetailScreen from '@/components/DetailScreen'
-import AddListingScreen from '@/components/AddListingScreen'
+import AddListingWizard from '@/components/AddListingWizard'
+import EditListingForm from '@/components/EditListingForm'
 import FeedbackScreen from '@/components/FeedbackScreen'
 import AllListingsScreen, { BASE_CATALOG_FILTERS, type CatalogFilters } from '@/components/AllListingsScreen'
 import DesktopHeader from '@/components/DesktopHeader'
@@ -60,11 +64,23 @@ function AppInner() {
   const [activeScreen, setActiveScreen] = useState<Screen>('home')
   const [selectedListing, setSelectedListing] = useState<ListingData | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  // E.2.3 requirement 5 — set only when opening the wizard from a specific
+  // draft's own "Продовжити заповнення" (handleContinueDraft below);
+  // ordinary "Додати оголошення" (goAddListing) always clears it first, so
+  // the generic multi-draft recovery prompt is what runs there.
+  const [continuingDraftId, setContinuingDraftId] = useState<number | null>(null)
   const [editingListing, setEditingListing] = useState<ListingData | null>(null)
   const [showFeedback, setShowFeedback] = useState(false)
+  const [showModeration, setShowModeration] = useState(false)
   const [showAll, setShowAll] = useState<{ title: string; items: ListingData[] } | null>(null)
   const [dbListings, setDbListings] = useState<ListingData[]>([])
   const [dbLoaded, setDbLoaded] = useState(false)
+  // Pre-migration audit fix (3rd round, blocker 1) — guards
+  // handleAdminDeleteListing against a repeat click while a delete for
+  // that same id is still in flight, and lets AdminDashboard (ProfileScreen)
+  // show a busy/disabled state on the specific row instead of the whole
+  // panel.
+  const [adminDeleteBusyIds, setAdminDeleteBusyIds] = useState<Set<number>>(new Set())
   const [homeLoadError, setHomeLoadError] = useState(false)
   // Lifted up (not local to HomeScreen/AllListingsScreen) so applied
   // filters survive navigating to a listing and back — those screens
@@ -135,6 +151,22 @@ function AppInner() {
     setHomeLoadError(failed && data.length === 0)
     setRefreshTick(t => t + 1)
   }, [])
+
+  // E.2.3 requirement 8: "LISTING_UPDATE_CONFLICT предлагает обновить
+  // список" — every status-lifecycle catch block in this file goes through
+  // this so a stale-data conflict always offers an actual "Оновити" action,
+  // not just message text telling the user to do it themselves.
+  const showLifecycleErrorToast = useCallback((e: unknown, fallbackMsg: string) => {
+    if (e instanceof ListingLifecycleError) {
+      if (e.code === 'LISTING_UPDATE_CONFLICT') {
+        showToast(messageForLifecycleError(e.code), { action: { label: '🔄 Оновити', onClick: loadListings }, duration: 6000 })
+      } else {
+        showToast(messageForLifecycleError(e.code))
+      }
+    } else {
+      showToast(fallbackMsg)
+    }
+  }, [showToast, loadListings])
 
   // Tracks which user id's favorites have already been fetched, so
   // getSessionUser() (on mount), the onAuthStateChange subscription, and
@@ -230,12 +262,21 @@ function AppInner() {
 
   // Desktop wide-shell escape hatch (D.1/D.2): layout.tsx's .app-shell
   // caps every screen at 430px in normal document flow. Screens that
-  // have been adapted for desktop (Home, Catalog, Detail) get a body
-  // class that lifts that cap via CSS — see .app-shell / body.wide-shell
-  // in globals.css. Everything else keeps rendering in the untouched
-  // 430px column. This toggles a class only — no fixed positioning, so
-  // the page keeps a single normal document-flow scroll.
+  // have been adapted for desktop get a body class that lifts that cap
+  // via CSS — see .app-shell / body.wide-shell in globals.css. Everything
+  // else keeps rendering in the untouched 430px column. This toggles a
+  // class only — no fixed positioning, so the page keeps a single normal
+  // document-flow scroll.
+  //
+  // E.2.2 — showAdd (the 5-step wizard) is now adapted too: it wraps
+  // itself in .desktop-wide-screen/-inner exactly like Home/Catalog/
+  // Detail/Requests do. editingListing (EditListingForm, the older
+  // single-screen editor for already-published listings) deliberately
+  // stays OUT of wide-shell — it isn't part of this stage's scope and its
+  // own markup has no wide-layout wrapper, so lifting the 430px cap under
+  // it would just stretch it edge-to-edge unstyled.
   const isWideShell = phase === 'auth'
+    || showAdd
     || (phase === 'app' && !showFeedback && !showAdd && !editingListing
       && (!!selectedListing || !!showAll || ['home', 'profile', 'messages', 'favorites', 'requests'].includes(activeScreen)))
   useEffect(() => {
@@ -336,118 +377,222 @@ function AppInner() {
     scrollTop()
   }
 
-  const handleAddListing = async (data: Partial<ListingData>) => {
-    // No fallback id: publishing without a real authenticated user must be
-    // impossible, not silently attributed to a placeholder owner.
-    // goAddListing() already keeps the form from opening for a logged-out
-    // user — this is the backstop for the session expiring while it's open.
-    if (!user) {
-      showToast('⚠️ Потрібно увійти, щоб опублікувати оголошення')
-      setShowAdd(false)
-      setPhase('auth')
-      return
+  // AddListingWizard owns the entire draft → pending_review lifecycle
+  // itself (autosave, recovery, submit, delete) — this fires exactly once,
+  // after a successful dbSubmitListingForReview, purely to let page.tsx
+  // reflect the result in its own listing list and close the wizard.
+  const handleListingSubmitted = (listing: ListingData, warning?: { orphanedImageCount: number }) => {
+    setDbListings(prev => prev.find(l => l.id === listing.id) ? prev.map(l => l.id === listing.id ? listing : l) : [listing, ...prev])
+    setRefreshTick(t => t + 1)
+    // A stuck Storage cleanup never blocks/changes the submission itself —
+    // publication is already a success at this point regardless. This is
+    // purely informational: logged with the listing id and a count only
+    // (never a URL, never anything user-identifying beyond the listing's
+    // own already-public id) so it's not silently lost, and separately
+    // surfaced to the user as a quiet, delayed second toast — deliberately
+    // NOT combined with the success toast, and NOT alarming (ℹ️, not ⚠️),
+    // since it doesn't affect whether the listing itself is fine. The
+    // `warning` value itself lives in this closure (captured the instant
+    // AddListingWizard called onSubmitted, before it unmounts on the
+    // setShowAdd(false) below), not read back from the unmounted wizard
+    // afterward, so there's nothing to lose to that unmount.
+    if (warning && warning.orphanedImageCount > 0) {
+      console.error(`[page] listing ${listing.id} submitted with ${warning.orphanedImageCount} orphaned Storage image(s) left over from its draft`)
+      setTimeout(() => {
+        showToast(`ℹ️ Технічна примітка: ${warning.orphanedImageCount} тимчасовий файл(и) не вдалося прибрати — на оголошення це не впливає.`, { duration: 4000 })
+      }, 3200)
     }
-    const toPublish: Partial<ListingData> = {
-      userId: user.id,
-      ownerName: user.name || null,
-      ownerPhone: user.phone || null,
-      title: data.title || '',
-      type: data.type || 'Офіс',
-      price: data.price || 0,
-      area: data.area || 0,
-      floor: data.floor ?? null,
-      totalFloors: data.totalFloors ?? null,
-      district: data.district || 'Приморський',
-      address: data.address || '',
-      city: 'Одеса',
-      condition: data.condition || 'Євроремонт',
-      parking: data.parking || false,
-      separateEntrance: data.separateEntrance || false,
-      description: data.description || null,
-      images: data.images?.length ? data.images : ['/no-photo.png'],
-      features: data.features || [],
-    }
-
-    // No optimistic temp entry — realtime subscription will add the
-    // real DB row the moment Supabase confirms the insert. This avoids
-    // the duplicate-then-merge flicker (temp row + realtime row + saved row).
-    let saved: ListingData | null
-    try {
-      saved = await dbPublishListing(toPublish)
-    } catch (e) {
-      if (e instanceof ListingRateLimitError) {
-        showToast(e.code === 'LISTING_RATE_LIMIT_10_MIN'
-          ? '⚠️ Ви створили забагато оголошень за короткий час. Спробуйте трохи пізніше.'
-          : '⚠️ Досягнуто денний ліміт публікацій. Спробуйте пізніше.')
-        setShowAdd(false)
-        setActiveScreen('requests')
-        scrollTop()
-        return
-      }
-      throw e
-    }
-    if (saved) {
-      // Add immediately in case realtime event hasn't arrived yet.
-      // The realtime handler already dedupes by id, so this is safe
-      // even if the realtime event fires a moment later.
-      setDbListings(prev => prev.find(l => l.id === saved.id) ? prev : [saved, ...prev])
-      setRefreshTick(t => t + 1)
-      showToast('✅ Оголошення опубліковано!')
-    } else {
-      showToast('⚠️ Помилка збереження. Перевірте підключення.')
-    }
-
+    showToast('✅ Надіслано на модерацію!')
     setShowAdd(false)
     setActiveScreen('requests')
     scrollTop()
   }
 
+  // Pre-existing admin-dashboard "delete any listing" action
+  // (ProfileScreen's AdminDashboard) — unrelated to E.2.3's owner-facing
+  // lifecycle (no status guard, permanent, works on any row).
+  //
+  // Pre-migration audit fix (3rd round, blocker 1): this used to remove the
+  // row from `dbListings` OPTIMISTICALLY, before dbDeleteListing even
+  // resolved — a failed/conflicting delete would still make the listing
+  // vanish app-wide (home feed, catalog, everywhere dbListings is read)
+  // until the fallback loadListings() quietly put it back moments later.
+  // "This predates E.2.3 and was out of scope for that stage" was true but
+  // is not a reason to ship it into production now — fixed to the same
+  // non-optimistic shape as every other lifecycle handler in this file:
+  // call the DB first, only touch state on a CONFIRMED success (dbDeleteListing
+  // now reliably reports 0-rows-deleted as failure, not success — see its
+  // own comment in db.ts), leave the card in place on any failure, and
+  // guard against a repeat click on the same id while the request is
+  // in flight.
+  const handleAdminDeleteListing = async (id: number) => {
+    if (adminDeleteBusyIds.has(id)) return
+    setAdminDeleteBusyIds(prev => new Set(prev).add(id))
+    try {
+      const ok = await dbDeleteListing(id)
+      if (ok) {
+        setDbListings(prev => prev.filter(l => l.id !== id))
+        setRefreshTick(t => t + 1)
+        showToast('Оголошення видалено')
+      } else {
+        // Nothing was removed from state, so nothing to "revert" — just
+        // reconcile with the DB (covers the "someone/something already
+        // deleted it" case) and tell the admin plainly that this attempt
+        // didn't do anything.
+        await loadListings()
+        showToast('❌ Не вдалося видалити оголошення. Спробуйте ще раз.')
+      }
+    } finally {
+      setAdminDeleteBusyIds(prev => { const n = new Set(prev); n.delete(id); return n })
+    }
+  }
+
+  // E.2.3 requirement 2 — routes by the listing's CURRENT status (known
+  // from editingListing, already in state when EditListingForm is open):
+  //   - rejected: same row, dbSubmitListingForReview — no new draft, this
+  //     IS the resubmit action, not a separate "save" step.
+  //   - active/paused/archived: dbUpdateListingForReview — explicit
+  //     status:'pending_review' + is_active:false dual-write in the same
+  //     UPDATE, never relying on the not-yet-live Migration B trigger to
+  //     do this for the rollout window.
+  //   - anything else (draft — shouldn't reach EditListingForm at all;
+  //     pending_review — read-only, no submit button to call this from):
+  //     falls back to the plain dbUpdateListing with no status change, a
+  //     defensive no-op path rather than silently mismatching an action.
+  // `data` here is ALREADY a diff (EditListingForm's computeChangedFields)
+  // — never a blind full-row payload, and this function is never called at
+  // all when nothing changed (EditListingForm short-circuits that itself).
   const handleUpdateListing = async (id: number, data: Partial<ListingData>) => {
-    const updated = await dbUpdateListing(id, data)
-    if (updated) {
-      setDbListings(prev => prev.map(l => l.id === id ? updated : l))
-      setRefreshTick(t => t + 1)
-      showToast('✅ Зміни збережено!')
-    } else {
-      showToast('⚠️ Помилка збереження. Перевірте підключення.')
+    const status = editingListing?.status
+    try {
+      let updated: ListingData | null = null
+      if (status === 'rejected') {
+        updated = await dbSubmitListingForReview(id, data)
+        if (updated) showToast('📤 Надіслано на повторну модерацію!')
+      } else if (status === 'active' || status === 'paused' || status === 'archived') {
+        if (!user) { showToast('⚠️ Потрібно увійти'); return }
+        updated = await dbUpdateListingForReview(id, data, user.id)
+        if (updated) showToast('✅ Збережено, надіслано на повторну модерацію')
+      } else {
+        updated = await dbUpdateListing(id, data)
+        if (updated) showToast('✅ Зміни збережено!')
+      }
+      if (updated) {
+        const updatedListing = updated
+        setDbListings(prev => prev.map(l => l.id === id ? updatedListing : l))
+        setRefreshTick(t => t + 1)
+      } else {
+        showToast('⚠️ Помилка збереження. Перевірте підключення.')
+      }
+    } catch (e) {
+      showLifecycleErrorToast(e, '⚠️ Помилка збереження. Перевірте підключення.')
     }
     setEditingListing(null)
     setActiveScreen('requests')
     scrollTop()
   }
 
-  // Permanent delete — used by the admin moderation panel only. Removes the
-  // row entirely and immediately drops it from local state.
-  const handleDeleteListing = async (id: number) => {
-    setDbListings(prev => prev.filter(l => l.id !== id))
-    setRefreshTick(t => t + 1)
-    const ok = await dbDeleteListing(id)
-    if (!ok) { await loadListings(); showToast('❌ Помилка видалення') }
-    else showToast('Оголошення видалено')
+  // ── E.2.3 status-lifecycle actions ─────────────────────────────
+  // All of these are deliberately NON-optimistic (requirement 8: "при
+  // ошибке карточка не меняет статус оптимистично") — dbListings is only
+  // updated with the row the DB actually confirmed, never a client
+  // assumption made before the request resolves. Each returns a boolean so
+  // RequestsScreen can drive its own per-card busy/disabled state and know
+  // when to stop showing a spinner, without this file owning any UI state.
+
+  const handlePauseListing = async (id: number): Promise<boolean> => {
+    try {
+      const updated = await dbPauseListing(id)
+      if (!updated) { showToast('⚠️ Не вдалося призупинити оголошення.'); return false }
+      setDbListings(prev => prev.map(l => l.id === id ? updated : l))
+      setRefreshTick(t => t + 1)
+      showToast('⏸️ Оголошення призупинено')
+      return true
+    } catch (e) {
+      showLifecycleErrorToast(e, '⚠️ Не вдалося призупинити оголошення.')
+      return false
+    }
   }
 
-  // Owner-facing "delete" from "Мої оголошення" — archives instead of
-  // permanently deleting, so it can be restored or the listing history
-  // reviewed later. The row stays in dbListings (isActive:false) rather
-  // than being removed, so it can still be found in the archive view.
-  const handleArchiveListing = async (id: number) => {
-    setDbListings(prev => prev.map(l => l.id === id ? { ...l, isActive: false } : l))
-    setRefreshTick(t => t + 1)
-    const ok = await dbArchiveListing(id)
-    if (!ok) { await loadListings(); showToast('❌ Помилка видалення') }
-    else showToast('📦 Перенесено в архів', { action: { label: 'Скасувати', onClick: () => handleRestoreListing(id) }, duration: 5000 })
+  const handleArchiveListing = async (id: number): Promise<boolean> => {
+    try {
+      const updated = await dbArchiveListing(id)
+      if (!updated) { showToast('⚠️ Не вдалося перенести в архів.'); return false }
+      setDbListings(prev => prev.map(l => l.id === id ? updated : l))
+      setRefreshTick(t => t + 1)
+      showToast('📦 Перенесено в архів', { action: { label: 'Скасувати', onClick: () => handleRestoreListing(id) }, duration: 5000 })
+      return true
+    } catch (e) {
+      showLifecycleErrorToast(e, '⚠️ Не вдалося перенести в архів.')
+      return false
+    }
   }
 
-  const handleRestoreListing = async (id: number) => {
-    setDbListings(prev => prev.map(l => l.id === id ? { ...l, isActive: true } : l))
+  const handleRestoreListing = async (id: number): Promise<boolean> => {
+    try {
+      const updated = await dbRestoreListing(id)
+      if (!updated) { showToast('⚠️ Не вдалося відновити оголошення.'); return false }
+      setDbListings(prev => prev.map(l => l.id === id ? updated : l))
+      setRefreshTick(t => t + 1)
+      showToast('✅ Оголошення відновлено')
+      return true
+    } catch (e) {
+      showLifecycleErrorToast(e, '⚠️ Не вдалося відновити оголошення.')
+      return false
+    }
+  }
+
+  const handleDeleteDraft = async (listing: ListingData): Promise<boolean> => {
+    if (!user) return false
+    const result = await dbDeleteDraftListing(listing.id, listing.images || [], user.id)
+    if (!result.ok) {
+      if (result.code === 'LISTING_UPDATE_CONFLICT') {
+        showToast(messageForLifecycleError(result.code), { action: { label: '🔄 Оновити', onClick: loadListings }, duration: 6000 })
+      } else {
+        showToast(result.code ? messageForLifecycleError(result.code) : '⚠️ Не вдалося видалити чернетку.')
+      }
+      return false
+    }
+    setDbListings(prev => prev.filter(l => l.id !== listing.id))
     setRefreshTick(t => t + 1)
-    const ok = await dbRestoreListing(id)
-    if (!ok) { await loadListings(); showToast('❌ Помилка відновлення') }
-    else showToast('✅ Оголошення відновлено')
+    showToast('🗑️ Чернетку видалено')
+    return true
+  }
+
+  // "Видалити назавжди" for an ARCHIVED listing only — dbDeleteDraftListing
+  // is deliberately NOT reused here (see its own comment: different,
+  // unrelated source status).
+  const handleDeleteArchivedPermanently = async (listing: ListingData): Promise<boolean> => {
+    if (!user) return false
+    const result = await dbDeleteArchivedListing(listing.id, user.id)
+    if (!result.ok) {
+      if (result.code === 'LISTING_UPDATE_CONFLICT') {
+        showToast(messageForLifecycleError(result.code), { action: { label: '🔄 Оновити', onClick: loadListings }, duration: 6000 })
+      } else {
+        showToast(result.code ? messageForLifecycleError(result.code) : '⚠️ Не вдалося видалити оголошення.')
+      }
+      return false
+    }
+    setDbListings(prev => prev.filter(l => l.id !== listing.id))
+    setRefreshTick(t => t + 1)
+    showToast('🗑️ Оголошення видалено назавжди')
+    return true
+  }
+
+  // E.2.3 requirement 5 — "Продовжити заповнення" from a draft's own card:
+  // opens the wizard pinned to THIS id (re-verified server-side inside
+  // AddListingWizard via dbGetDraftById), skipping the generic recovery
+  // prompt. continuingDraftId is cleared whenever the wizard closes so the
+  // NEXT ordinary "Додати оголошення" doesn't accidentally reopen it.
+  const handleContinueDraft = (listing: ListingData) => {
+    setContinuingDraftId(listing.id)
+    setShowAdd(true)
+    scrollTop()
   }
 
   const goAddListing = () => {
     if (!user) { setPhase('auth'); return }
+    setContinuingDraftId(null)
     setShowAdd(true); scrollTop()
   }
   const goScreen = (s: Screen) => { setActiveScreen(s); scrollTop() }
@@ -461,7 +606,42 @@ function AppInner() {
     </>
   )
   if (showFeedback) return <><FeedbackScreen onBack={() => { setShowFeedback(false); scrollTop() }} /><Toast msg={toastMsg} action={toastAction} /></>
-  if (showAdd || editingListing) return <><AddListingScreen user={user} onBack={() => { setShowAdd(false); setEditingListing(null); scrollTop() }} onCreated={handleAddListing} onUpdated={handleUpdateListing} editListing={editingListing || undefined} onGoProfile={() => { setShowAdd(false); setEditingListing(null); setActiveScreen('profile'); scrollTop() }} /><Toast msg={toastMsg} action={toastAction} /></>
+  // E.2.4 requirement 1: "при прямой попытке открыть экран обычным
+  // пользователем — безопасный отказ и возврат". isAdmin(user) is checked
+  // HERE too, independently of ProfileScreen only showing the "Модерація"
+  // button to admins — even if showModeration were somehow true for a
+  // non-admin session (state left over from a role change, a forged
+  // client state, anything), this still refuses to mount ModerationScreen
+  // for them and sends them back rather than rendering it and trusting
+  // the component's own internal check alone.
+  if (showModeration && isAdmin(user)) {
+    return (
+      <>
+        <DesktopHeader user={user} onLogin={() => setPhase('auth')} onProfile={() => goScreen('profile')} onAddListing={goAddListing} onGoHome={() => goScreen('home')} onComingSoon={(label) => showToast(`🔜 ${label} — скоро буде доступно`)} />
+        <ModerationScreen user={user} onBack={() => { setShowModeration(false); setActiveScreen('profile'); scrollTop() }} showToast={showToast} />
+        <Toast msg={toastMsg} action={toastAction} />
+      </>
+    )
+  }
+  // Abandoning the wizard (back / go-to-profile) does NOT delete its draft
+  // — AddListingWizard's own dbFindExistingDraft recovery picks it back up
+  // next time "Додати оголошення" is opened (requirement: "выход из
+  // мастера не удаляет draft молча"). continuingDraftId IS cleared here —
+  // it's only meant to pin this ONE open of the wizard to a specific draft,
+  // not to keep overriding the generic recovery prompt forever after.
+  if (showAdd) return (
+    <>
+      <DesktopHeader user={user} onLogin={() => setPhase('auth')} onProfile={() => goScreen('profile')} onAddListing={goAddListing} onGoHome={() => goScreen('home')} onComingSoon={(label) => showToast(`🔜 ${label} — скоро буде доступно`)} />
+      <AddListingWizard user={user} initialDraftId={continuingDraftId ?? undefined} onBack={() => { setShowAdd(false); setContinuingDraftId(null); scrollTop() }} onSubmitted={(...args) => { setContinuingDraftId(null); handleListingSubmitted(...args) }} onGoProfile={() => { setShowAdd(false); setContinuingDraftId(null); setActiveScreen('profile'); scrollTop() }} />
+      <Toast msg={toastMsg} action={toastAction} />
+    </>
+  )
+  if (editingListing) return (
+    <>
+      <EditListingForm user={user} editListing={editingListing} readOnly={editingListing.status === 'pending_review'} onBack={() => { setEditingListing(null); scrollTop() }} onUpdated={handleUpdateListing} />
+      <Toast msg={toastMsg} action={toastAction} />
+    </>
+  )
   if (selectedListing) return (
     <>
       <DesktopHeader user={user} onLogin={() => setPhase('auth')} onProfile={() => goScreen('profile')} onAddListing={goAddListing} onGoHome={() => { setSelectedListing(null); setShowAll(null); savedShowAll.current = null; goScreen('home') }} onComingSoon={(label) => showToast(`🔜 ${label} — скоро буде доступно`)} />
@@ -555,8 +735,22 @@ function AppInner() {
           />
         )}
         {activeScreen === 'favorites' && <FavoritesScreen favorites={favs} allListings={visibleListings} onListing={openListing} onFavorite={toggleFav} onRefresh={handleRefresh} />}
-        {activeScreen === 'requests' && <RequestsScreen user={user} isGuest={isGuest && !user} listings={allListings} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onListing={openListing} onDelete={handleArchiveListing} onRestore={handleRestoreListing} onPermanentDelete={handleDeleteListing} onEdit={(l) => { setEditingListing(l); scrollTop() }} onRefresh={handleRefresh} onBack={() => { setActiveScreen('profile'); scrollTop() }} />}
-        {activeScreen === 'profile' && <ProfileScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onFeedback={() => { setShowFeedback(true); scrollTop() }} favCount={favs.length} onLogout={handleLogout} showToast={showToast} listings={allListings} onListing={openListing} onDeleteListing={handleDeleteListing} onRefresh={handleRefresh} onMyListings={() => { setActiveScreen('requests'); scrollTop() }} onEditListing={(l) => { setEditingListing(l); scrollTop() }} onArchiveListing={handleArchiveListing} onGoFavorites={() => goScreen('favorites')} onGoMessages={() => goScreen('messages')} />}
+        {activeScreen === 'requests' && <RequestsScreen
+          user={user} isGuest={isGuest && !user} listings={allListings}
+          onLogin={() => setPhase('auth')} onAddListing={goAddListing}
+          onListing={openListing}
+          onViewReadOnly={(l) => { setEditingListing(l); scrollTop() }}
+          onEdit={(l) => { setEditingListing(l); scrollTop() }}
+          onContinueDraft={handleContinueDraft}
+          onDeleteDraft={handleDeleteDraft}
+          onPause={handlePauseListing}
+          onArchive={handleArchiveListing}
+          onRestore={handleRestoreListing}
+          onDeleteArchived={handleDeleteArchivedPermanently}
+          onRefresh={handleRefresh}
+          onBack={() => { setActiveScreen('profile'); scrollTop() }}
+        />}
+        {activeScreen === 'profile' && <ProfileScreen user={user} isGuest={isGuest && !user} onLogin={() => setPhase('auth')} onAddListing={goAddListing} onFeedback={() => { setShowFeedback(true); scrollTop() }} favCount={favs.length} onLogout={handleLogout} showToast={showToast} listings={allListings} onListing={openListing} onDeleteListing={handleAdminDeleteListing} deletingListingIds={adminDeleteBusyIds} onRefresh={handleRefresh} onMyListings={() => { setActiveScreen('requests'); scrollTop() }} onEditListing={(l) => { setEditingListing(l); scrollTop() }} onArchiveListing={handleArchiveListing} onGoFavorites={() => goScreen('favorites')} onGoMessages={() => goScreen('messages')} onOpenModeration={() => { setShowModeration(true); scrollTop() }} />}
       </div>
       {!chatWindowOpen && <BottomNav active={activeScreen} onChange={goScreen} favCount={favs.length} unreadMessages={unreadMsgs} />}
       <Toast msg={toastMsg} action={toastAction} />
