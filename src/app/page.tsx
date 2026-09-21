@@ -7,12 +7,13 @@ import { getSessionUser, subscribeAuthChanges, signOut, isAdmin } from '@/lib/au
 import {
   dbGetListings, dbUpdateListing, dbUpdateListingForReview, dbSubmitListingForReview,
   dbArchiveListing, dbRestoreListing, dbPauseListing,
-  dbDeleteDraftListing, dbDeleteArchivedListing, dbDeleteListing,
+  dbDeleteDraftListing, dbDeleteArchivedListing, dbDeleteListing, dbDeleteListingImageDetailed,
   subscribeToListings, isSupabaseReady,
   dbGetUserFavorites, dbAddFavorite, dbRemoveFavorite,
   ListingLifecycleError,
 } from '@/lib/db'
 import { messageForLifecycleError } from '@/lib/listingStatus'
+import { flushImageDeletesWithRetry } from '@/lib/imageDeleteRetry'
 import { getUnreadCount, type ChatRecord } from '@/lib/chats-db'
 import { useChatSoundListener } from '@/components/ChatsScreen'
 
@@ -464,6 +465,7 @@ function AppInner() {
   // all when nothing changed (EditListingForm short-circuits that itself).
   const handleUpdateListing = async (id: number, data: Partial<ListingData>) => {
     const status = editingListing?.status
+    const originalImages = editingListing?.images || []
     try {
       let updated: ListingData | null = null
       if (status === 'rejected') {
@@ -481,6 +483,35 @@ function AppInner() {
         const updatedListing = updated
         setDbListings(prev => prev.map(l => l.id === id ? updatedListing : l))
         setRefreshTick(t => t + 1)
+        // EditListingForm only diffs the DB row — it never touches Storage.
+        // Only now, with the row UPDATE confirmed, is it safe to remove
+        // whatever photos this edit actually dropped (same row-first-then-
+        // Storage ordering as dbDeleteDraftListing/dbDeleteArchivedListing;
+        // best-effort, never turns a successful save into a failure — this
+        // whole block is fire-and-forget after the save toast above already
+        // fired). Matches AddListingWizard's flushPendingImageDeletesWithRetry
+        // pattern (bounded retry + a separate toast once retries are spent),
+        // but — unlike that one — does NOT retry a 'refused' (ownership/path
+        // validation) outcome: that check is deterministic on its input, so
+        // retrying it burns attempts on something that cannot change,
+        // instead of giving a real transient Storage error more chances.
+        if (data.images && user) {
+          const removedUrls = originalImages.filter(url => !data.images!.includes(url))
+          if (removedUrls.length > 0) {
+            const ownerId = user.id
+            const maxAttempts = 3
+            flushImageDeletesWithRetry(removedUrls, maxAttempts, url => dbDeleteListingImageDetailed(url, ownerId))
+              .then(({ refusedCount, remaining }) => {
+                if (refusedCount > 0) {
+                  console.error(`[handleUpdateListing] ${refusedCount} image(s) refused by ownership/path validation — orphan file(s), not retried`)
+                }
+                if (remaining.length > 0) {
+                  console.error(`[handleUpdateListing] ${remaining.length} image(s) could not be removed from Storage after ${maxAttempts} attempts — orphan file(s)`)
+                  showToast(`ℹ️ Технічна примітка: ${remaining.length} файл(и) не вдалося прибрати — на оголошення це не впливає.`, { duration: 4000 })
+                }
+              })
+          }
+        }
       } else {
         showToast('⚠️ Помилка збереження. Перевірте підключення.')
       }

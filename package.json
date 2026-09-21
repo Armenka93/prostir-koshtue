@@ -11,6 +11,7 @@
     "test:e2e:report": "playwright show-report",
     "test:autosave": "node scripts/run-autosave-test.js",
     "test:image-path": "node scripts/run-image-path-test.js",
+    "test:image-delete-retry": "node scripts/run-image-delete-retry-test.js",
     "test:pending-review-cursor": "node scripts/run-pending-review-cursor-test.js",
     "test:lifecycle-timestamps": "node scripts/run-lifecycle-timestamps-test.js"
   },

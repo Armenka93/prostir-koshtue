@@ -98,21 +98,38 @@ export async function dbUploadListingImage(file: File, userId: string): Promise<
 // back from someone else's data. Passing it explicitly (rather than this
 // function independently re-deriving it) keeps the check pure and
 // easily-audited, with no hidden network call of its own.
-export async function dbDeleteListingImage(publicUrl: string, ownerId: string): Promise<boolean> {
-  if (!isSupabaseReady()) return false
+// 'refused' — the URL failed bucket/owner/origin/path validation before any
+// network call; deterministic, retrying changes nothing (see
+// parseOwnListingImagePath — the same input always fails the same way), so
+// a caller that retries should never retry this outcome specifically.
+// 'error' — the validation passed but the actual Storage call failed
+// (network/Storage-side issue); this IS worth a bounded retry, since the
+// same call can succeed on a later attempt.
+export type ListingImageDeleteResult = 'ok' | 'refused' | 'error'
+
+export async function dbDeleteListingImageDetailed(publicUrl: string, ownerId: string): Promise<ListingImageDeleteResult> {
+  if (!isSupabaseReady()) return 'error'
   const path = parseOwnListingImagePath(publicUrl, ownerId, LISTING_IMAGES_BUCKET, process.env.NEXT_PUBLIC_SUPABASE_URL || '')
   if (!path) {
     console.error('[dbDeleteListingImage] refused — URL failed bucket/owner/origin/path validation, no delete attempted')
-    return false
+    return 'refused'
   }
   try {
     const { error } = await supabase.storage.from(LISTING_IMAGES_BUCKET).remove([path])
-    if (error) { console.error('[dbDeleteListingImage]', error.message); return false }
-    return true
+    if (error) { console.error('[dbDeleteListingImage]', error.message); return 'error' }
+    return 'ok'
   } catch (e: any) {
     console.error('[dbDeleteListingImage] CATCH:', e?.message)
-    return false
+    return 'error'
   }
+}
+
+// Plain ok/fail wrapper for callers that don't need to tell a deterministic
+// refusal apart from a transient failure (dbDeleteDraftListing,
+// dbDeleteArchivedListing, AddListingWizard) — same behavior as before
+// dbDeleteListingImageDetailed existed.
+export async function dbDeleteListingImage(publicUrl: string, ownerId: string): Promise<boolean> {
+  return (await dbDeleteListingImageDetailed(publicUrl, ownerId)) === 'ok'
 }
 
 // ── LISTING LIFECYCLE ERRORS ─────────────────────────────────────

@@ -10,3 +10,4 @@ Thumbs.db
 *.tsbuildinfo
 .vercel
 .env*
+supabase/.temp/
