@@ -136,6 +136,27 @@ export type ListingLifecycleErrorCode =
   | 'LISTING_TOO_MANY_PHOTOS'
   | 'LISTING_RATE_LIMIT_10_MIN'
   | 'LISTING_RATE_LIMIT_24_HOURS'
+  // check_publish_rate_limit() raises this when auth.uid() is null — no
+  // JWT in the request. Shouldn't happen for a real logged-in user (RLS
+  // already requires ownership before the trigger runs), but classified
+  // rather than left to fall through to a generic error if it ever does.
+  | 'LISTING_RATE_LIMIT_NO_AUTH'
+  // enforce_listing_lifecycle() raises this when the resulting row values
+  // (NEW vs OLD/DEFAULT — a trigger only ever sees the final value it's
+  // about to write, never which keys the client's request body actually
+  // contained) match one of three shapes no current code path in this
+  // file ever produces: (1) an INSERT where is_active ends up true
+  // (listingToRow() always sets it explicitly, always false for a draft —
+  // never left to the column default), (2) an owner UPDATE where
+  // is_active's value changes but status's does not, and (3) an owner
+  // UPDATE of a significant field on a live listing where neither
+  // status's nor is_active's value changes (dbUpdateListingForReview
+  // always changes both together in the same request). All three are the
+  // signature of a pre-Migration-B client's old direct is_active writes /
+  // plain field PATCHes. Should never come from a session running THIS
+  // build, but classified rather than left generic, same reasoning as the
+  // rate-limit code above.
+  | 'LISTING_LEGACY_CLIENT_DETECTED'
   // UPDATE matched zero rows — id doesn't exist, OR the row exists but its
   // status no longer matches the `.in('status', [...])` guard (someone
   // else already changed it), OR RLS silently excluded it. PostgREST/
@@ -166,7 +187,8 @@ const TRIGGER_MESSAGE_CODES = new Set<string>([
   'LISTING_LOCKED_PENDING_REVIEW', 'LISTING_STATUS_FORBIDDEN_SELF_APPROVE',
   'LISTING_STATUS_FORBIDDEN_SELF_REJECT', 'LISTING_STATUS_INVALID_TRANSITION',
   'LISTING_STATUS_FORBIDDEN_ADMIN_TRANSITION', 'LISTING_REJECTION_REASON_REQUIRED',
-  'LISTING_RATE_LIMIT_10_MIN', 'LISTING_RATE_LIMIT_24_HOURS',
+  'LISTING_RATE_LIMIT_10_MIN', 'LISTING_RATE_LIMIT_24_HOURS', 'LISTING_RATE_LIMIT_NO_AUTH',
+  'LISTING_LEGACY_CLIENT_DETECTED',
 ])
 
 // CHECK-constraint violations (SQLSTATE 23514) carry the constraint name

@@ -214,11 +214,20 @@ export default function EditListingForm({ user, editListing, onBack, onUpdated, 
     if (photos.some(p => p.uploading)) { setPhotoError('Зачекайте, фото ще завантажуються'); return }
     if (photos.some(p => p.failed)) { setPhotoError('Деякі фото не вдалося завантажити — видаліть їх або спробуйте ще раз'); return }
 
+    // Every save through this form ends in pending_review (resubmit or
+    // forced re-review) — matches listings_required_for_review's photo
+    // floor (Migration B) client-side, same rule AddListingWizard already
+    // enforces. Counts only successfully uploaded, distinct, non-empty
+    // URLs (mirrors the DB's count(distinct btrim(img))) — an in-flight or
+    // failed upload was already rejected above and never reaches here.
+    const uploadedPhotoUrls = photos.map(p => p.uploadedUrl).filter((u): u is string => !!u)
+    const uniquePhotoCount = new Set(uploadedPhotoUrls.map(u => u.trim()).filter(Boolean)).size
+    if (uniquePhotoCount < 3) { setPhotoError('Додайте щонайменше 3 фото'); return }
+
     setFieldErrors({})
     setPhotoError('')
     setNoChangesNotice(false)
 
-    const uploadedPhotoUrls = photos.map(p => p.uploadedUrl).filter((u): u is string => !!u)
     const current: ComparableFields = {
       title: sanitize(title), type,
       price: parseInt(price), area: parseInt(area),
@@ -232,22 +241,28 @@ export default function EditListingForm({ user, editListing, onBack, onUpdated, 
     }
 
     // E.2.3 requirement 2: nothing to send — never an empty UPDATE, never
-    // a forced pending_review for a no-op "edit".
+    // a forced pending_review for a no-op "edit". Does NOT apply to a
+    // rejected listing: rejected -> pending_review is itself a real,
+    // meaningful transition the owner may want with zero field changes
+    // (e.g. asking for a second look) — Migration B's trigger allows it
+    // unconditionally, so blocking it here would silently strand a
+    // rejected listing whenever the owner has nothing to edit.
     const changed = computeChangedFields(original, current)
-    if (!changed) {
+    if (!changed && !isRejected) {
       setNoChangesNotice(true)
       return
     }
+    const payload = changed ?? {}
     // images specifically needs the '/no-photo.png' placeholder restored
     // for the actual payload if the edit really did empty the list — the
     // diff itself compares against the placeholder-free list (matching
     // `original`) so removing-then-not-replacing photos still counts as a
     // real change.
-    if (changed.images) changed.images = changed.images.length > 0 ? changed.images : ['/no-photo.png']
+    if (payload.images) payload.images = payload.images.length > 0 ? payload.images : ['/no-photo.png']
 
     submittingRef.current = true
     setLoading(true)
-    onUpdated(editListing.id, changed)
+    onUpdated(editListing.id, payload)
   }
 
   return (
@@ -411,7 +426,7 @@ export default function EditListingForm({ user, editListing, onBack, onUpdated, 
 
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <label style={{ ...lbl, marginBottom: 0 }}>Фотографії</label>
+            <label style={{ ...lbl, marginBottom: 0 }}>Фотографії * (мінімум 3)</label>
             <span style={{ fontSize: 12, color: '#6B7280' }}>{photos.length}/10</span>
           </div>
           {photos.length > 0 && (

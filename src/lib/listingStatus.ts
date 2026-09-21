@@ -62,6 +62,8 @@ export function messageForLifecycleError(code: ListingLifecycleErrorCode): strin
   switch (code) {
     case 'LISTING_RATE_LIMIT_10_MIN': return '⚠️ Забагато спроб за короткий час. Спробуйте через кілька хвилин.'
     case 'LISTING_RATE_LIMIT_24_HOURS': return '⚠️ Досягнуто денний ліміт публікацій. Спробуйте завтра.'
+    case 'LISTING_RATE_LIMIT_NO_AUTH': return '⚠️ Сесія застаріла. Увійдіть повторно і спробуйте ще раз.'
+    case 'LISTING_LEGACY_CLIENT_DETECTED': return '⚠️ Застаріла версія сторінки. Оновіть сторінку (F5) і спробуйте ще раз.'
     case 'LISTING_REQUIRED_FIELDS_MISSING': return "⚠️ Заповніть усі обов'язкові поля та додайте щонайменше 3 фото."
     case 'LISTING_TOO_MANY_PHOTOS': return '⚠️ Забагато фото — максимум 10.'
     case 'LISTING_UPDATE_CONFLICT': return '⚠️ Дані застаріли — хтось або щось інше вже змінило цей запис. Оновіть список і спробуйте ще раз.'

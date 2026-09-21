@@ -3,11 +3,17 @@
 -- blocker 2)
 -- ============================================================================
 -- REAL, EXECUTABLE SQL. NOT a migration — outside supabase/migrations/, run
--- ONLY manually, ONLY against a disposable staging project that has
--- Migration A (20260830100000_listing_status_expand.sql) applied and Migration B
--- (20260830110000_listing_status_enforce.sql) NOT YET applied — this is the exact
--- "old client, A applied, code not deployed yet, B not applied yet" window
--- the rollout order relies on being safe. NEVER run against production.
+-- ONLY manually, ONLY against a LOCAL Postgres instance (`supabase start`,
+-- localhost only) that has Migration A (20260830100000_listing_status_expand.sql,
+-- applied as ONE transaction — see the audit report's restore plan) applied
+-- and Migration B (20260830110000_listing_status_enforce.sql) NOT YET
+-- applied — this is the exact "old client, A applied, code not deployed
+-- yet, B not applied yet" window the rollout order relies on being safe.
+-- NEVER run against production or any project-linked connection string.
+-- This local instance is a schema-accurate reconstruction of this
+-- project's own objects on Supabase's generic local platform baseline —
+-- not a full copy of production (see the audit report for the exact
+-- excluded-schema list).
 --
 -- This is the ONE checkpoint in the whole rollout where this specific test
 -- is even meaningful: once B is applied, enforce_listing_lifecycle() forces
@@ -40,24 +46,53 @@
 --   at this point) — NOT NULL, so the row can't land with a NULL status
 --   either.
 --
+-- psql does not interpolate :'var' inside dollar-quoted ($$...$$) blocks
+-- (by design — otherwise plpgsql's := and array[a:b] would be mistaken for
+-- substitutions), and the check below runs inside one. Bridge the two -v
+-- values into session GUCs here, outside any $$ block, so the DO block can
+-- read them back via current_setting('app.*'). Unquoted :name (not
+-- :'name') — the -v values above are already single-quoted SQL literals;
+-- :'name' would quote them a second time.
+select set_config('app.owner_uid', :owner_uid, false);
+select set_config('app.confirm', :confirm, false);
+
 -- Guard against accidental execution.
 do $$
 begin
-  if :'confirm' is distinct from 'RUN_LEGACY_INSERT_CHECK' then
+  if current_setting('app.confirm', true) is distinct from 'RUN_LEGACY_INSERT_CHECK' then
     raise exception 'Refusing to run: pass -v confirm="''RUN_LEGACY_INSERT_CHECK''" explicitly. Disposable staging only, Migration A applied, Migration B NOT applied, never production.';
   end if;
 end $$;
 
--- Supply one REAL, already-existing auth uid from the target staging
--- project (any ordinary account is fine — this only tests the schema
--- default, not admin/owner branching, since B's trigger doesn't exist yet
--- in this window). Invoke with:
---   psql "$STAGING_DB_URL" \
+-- Supply one synthetic auth uid, inserted into the local instance's
+-- auth.users/public.accounts beforehand (any ordinary, non-admin row is
+-- fine — this only tests the schema default, not admin/owner branching,
+-- since B's trigger doesn't exist yet in this window), and a
+-- localhost-only connection string. `-v ON_ERROR_STOP=1` required — see
+-- the other test file's header for why. Invoke with:
+--   psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+--     -v ON_ERROR_STOP=1 \
 --     -v owner_uid="'11111111-1111-1111-1111-111111111111'" \
 --     -v confirm="'RUN_LEGACY_INSERT_CHECK'" \
 --     -f 20260830_legacy_insert_after_a_check.sql
+-- (confirm the actual local port via `supabase status`, don't assume it.)
 
 begin;
+
+-- Confirms the tested INSERT genuinely runs as `authenticated` with the
+-- expected auth.uid() — kept in pg_temp (session-local, gone once this
+-- connection ends, never touches the real schema).
+create function pg_temp.assert_test_identity() returns void
+language plpgsql as $fn$
+begin
+  if current_user <> 'authenticated' then
+    raise exception 'TEST HARNESS: expected current_user=authenticated, got %', current_user;
+  end if;
+  if auth.uid() is distinct from current_setting('app.owner_uid')::uuid then
+    raise exception 'TEST HARNESS: expected auth.uid()=%, got %', current_setting('app.owner_uid'), auth.uid();
+  end if;
+end;
+$fn$;
 
 do $$
 declare
@@ -65,7 +100,8 @@ declare
   v_row record;
 begin
   set local role authenticated;
-  perform set_config('request.jwt.claims', json_build_object('sub', :'owner_uid', 'role', 'authenticated')::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', current_setting('app.owner_uid'), 'role', 'authenticated')::text, true);
+  perform pg_temp.assert_test_identity();
 
   -- Exact shape of the OLD client's INSERT (src/lib/db.ts listingToRow(),
   -- as it exists at git HEAD today) — no `status` column at all, is_active
@@ -77,7 +113,7 @@ begin
     city, condition, parking, separate_entrance, description, images, features,
     is_active
   ) values (
-    :'owner_uid', :'owner_uid', 'Legacy client smoke test', 'Офіс', 15000, 40,
+    current_setting('app.owner_uid'), current_setting('app.owner_uid')::uuid, 'Legacy client smoke test', 'Офіс', 15000, 40,
     'Приморський', 'Test address', 'Одеса', 'Євроремонт', false, false,
     null, array['/no-photo.png'], array[]::text[],
     true

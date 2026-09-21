@@ -81,11 +81,41 @@ alter table public.listings alter column status set default 'draft';
 -- ============================================================================
 -- 2. Обязательные поля и фото — только вне draft, на уровне БД
 -- ============================================================================
+-- 5th round audit fix (requirement 4 — B остаётся ЕДИНСТВЕННЫМ источником
+-- lifecycle-правил): Migration A вводит ВРЕМЕННЫЙ CHECK
+-- listings_required_when_public (ключ — is_active, единственный сигнал,
+-- что-либо решавший в окне A-без-B). Как только здесь появляется
+-- постоянная, status-зависимая версия с полной проверкой (включая фото),
+-- временная снимается — иначе на публичной активной записи действовали бы
+-- ДВЕ независимые, частично дублирующие проверки одновременно (лишняя
+-- нагрузка на каждую запись и два места, которые в будущем могли бы
+-- разойтись). Снимается ДО создания новой — порядок здесь не важен для
+-- корректности (обе проверки в момент этого файла требуют одного и того
+-- же непустого набора полей для is_active=true/status!='draft' строк,
+-- переходного момента рассинхронизации между ними нет), но так нагляднее.
+alter table public.listings drop constraint if exists listings_required_when_public;
+
 -- images: минимум 3 РЕАЛЬНЫХ (непустых после trim) и РАЗЛИЧНЫХ URL —
 -- не просто array_length, иначе ['a','a','a'] формально проходил бы как
 -- "3 фото". max 10 — отдельный, БЕЗУСЛОВНЫЙ constraint ниже (действует
 -- и для draft тоже — сервер не должен позволять накопить в черновике
 -- больше, чем когда-либо разрешит опубликовать).
+--
+-- Подсчёт вынесен в IMMUTABLE-функцию: CHECK constraint не может содержать
+-- подзапрос напрямую (жёсткое ограничение PostgreSQL — "cannot use
+-- subquery in check constraint"), но вызов IMMUTABLE-функции допустим.
+-- SECURITY INVOKER (по умолчанию) — функция не читает ничего, кроме
+-- переданного аргумента, повышенные права не нужны.
+create or replace function public.count_distinct_nonempty_images(imgs text[])
+returns integer
+language sql
+immutable
+as $$
+  select count(distinct btrim(img))::integer
+  from unnest(imgs) as img
+  where img is not null and btrim(img) <> '';
+$$;
+
 alter table public.listings add constraint listings_required_for_review
   check (
     status = 'draft' or (
@@ -95,11 +125,7 @@ alter table public.listings add constraint listings_required_for_review
       area is not null and area > 0 and
       district is not null and btrim(district) <> '' and
       address is not null and btrim(address) <> '' and
-      (
-        select count(distinct btrim(img))
-        from unnest(images) as img
-        where img is not null and btrim(img) <> ''
-      ) >= 3
+      public.count_distinct_nonempty_images(images) >= 3
     )
   );
 
@@ -299,6 +325,33 @@ begin
     if NEW.status <> 'draft' then
       raise exception 'LISTING_STATUS_FORBIDDEN_INSERT';
     end if;
+    -- 8th round audit — REVERSING the 7th round's rejection of this check.
+    -- The 7th round worried a trigger can't tell "client explicitly sent
+    -- is_active=true" apart from "client omitted it and got the column's
+    -- own DEFAULT true" — that's still true (a trigger only ever sees the
+    -- resulting NEW.is_active value, on INSERT same as UPDATE — it cannot
+    -- observe which keys were present in the client's request body), but
+    -- it turns out to be irrelevant here: a source review of
+    -- listingToRow() (src/lib/db.ts, the ONLY current INSERT path —
+    -- dbPublishListing's direct is_active:true insert is retired) confirms
+    -- every current INSERT explicitly sets is_active (isActiveBridge('draft'),
+    -- currently false) to a value of its own choosing — never leaves it to
+    -- the column DEFAULT. So there is no current request shape this check
+    -- could ever misfire against, whether or not it could in principle
+    -- distinguish "explicit" from "defaulted". The false positive that got
+    -- this check removed last round was this smoke-test file's OWN
+    -- Scenario 0 (cross-owner RLS check) deliberately leaving the column
+    -- to its DEFAULT — fixed there instead of leaving a real gap here.
+    -- Confirmed by two REAL old-client requests replayed locally without
+    -- this check: an old client's direct "publish" INSERT (is_active:true,
+    -- no status key at all — it predates that column) landed as an
+    -- ordinary invisible draft with NO error — old UI reads back a 2xx
+    -- response and believes it just published live. That is a silent
+    -- wrong success, not "no data corruption" as the 7th round
+    -- characterized it — raise loudly instead.
+    if NEW.is_active is true then
+      raise exception 'LISTING_LEGACY_CLIENT_DETECTED';
+    end if;
     NEW.is_active := false;  -- status='draft' гарантирован проверкой выше
     -- E.2.4 (2nd round, п.1): все шість lifecycle-полів примусово в NULL
     -- на INSERT, незалежно від того, що надіслав клієнт — без цього
@@ -423,6 +476,30 @@ begin
     raise exception 'LISTING_LOCKED_PENDING_REVIEW';
   end if;
 
+  -- 7th round audit — legacy-client protection. PRECISION NOTE (9th round):
+  -- this compares NEW against OLD, i.e. it detects that the RESULTING VALUE
+  -- of is_active differs while status's does not — a trigger has no way to
+  -- see which keys were present in the client's request body (UPDATE ...
+  -- SET only ever touches the columns actually listed, so "column omitted"
+  -- and "column re-sent with its current value" produce an identical NEW
+  -- row); this is value-change detection, not request-shape detection. It
+  -- is still a reliable legacy-client signal because no current owner-facing
+  -- write path (dbSetListingStatus/isActiveBridge in src/lib/db.ts) ever
+  -- produces a request whose FINAL is_active value differs from OLD while
+  -- status's does not — archive/restore/pause always change both values
+  -- together, a plain field edit changes neither. A request whose values
+  -- show is_active changed with status unchanged can therefore only be a
+  -- pre-Migration-B client's direct is_active toggle (the original
+  -- archive/restore, from before status existed). Without this check it
+  -- would fall through silently: is_active is unconditionally recomputed
+  -- from the unchanged status at the end of this function regardless, so
+  -- the old client's toggle would have no effect and raise no error —
+  -- raise loudly here instead of leaving both at once.
+  if NEW.status is not distinct from OLD.status
+     and NEW.is_active is distinct from OLD.is_active then
+    raise exception 'LISTING_LEGACY_CLIENT_DETECTED';
+  end if;
+
   -- Служебные модераторские поля владельцу не подконтрольны — что бы
   -- клиент ни прислал, сохраняем прежние значения. Ветки ниже могут
   -- осознанно их изменить (обнуление при возврате на модерацию) — это
@@ -459,6 +536,34 @@ begin
   );
 
   if OLD.status in ('active', 'paused', 'archived') and v_significant then
+    -- 8th round audit — legacy-client protection, INSERT/UPDATE-mirror of
+    -- the is_active-toggle check above. PRECISION NOTE (9th round): this
+    -- compares NEW against OLD — it detects that the RESULTING VALUES of
+    -- status and is_active are unchanged, not that the client's request
+    -- omitted those keys (a trigger cannot observe that; see the same note
+    -- on the is_active-toggle check above). It is still a reliable
+    -- legacy-client signal here specifically because dbUpdateListingForReview()
+    -- (src/lib/db.ts) — the ONLY current code path that edits a significant
+    -- field on a live listing — ALWAYS sets status to the literal value
+    -- 'pending_review' in that same request, which structurally DIFFERS
+    -- from OLD.status for every OLD.status this branch runs on (active/
+    -- paused/archived, never pending_review itself). No currently-shipped
+    -- request can therefore reach this branch with status's value
+    -- unchanged; one that does can only be a pre-Migration-B client's
+    -- ordinary field edit (the original "just PATCH the changed columns",
+    -- from before status existed). Confirmed by replaying that exact
+    -- request locally without this check: {price: X} alone on an active
+    -- listing was accepted with no error, silently forced the row to
+    -- pending_review/is_active=false by the branch below, and the old
+    -- client — which never reads status or is_active — had no way to see
+    -- its "successful" edit just pulled the listing from the public
+    -- catalog. Must run BEFORE the branch forces NEW.status below, or the
+    -- unchanged-value signal is gone.
+    if NEW.status is not distinct from OLD.status
+       and NEW.is_active is not distinct from OLD.is_active then
+      raise exception 'LISTING_LEGACY_CLIENT_DETECTED';
+    end if;
+
     -- Значимая правка живого/приостановленного/архивного объявления —
     -- всегда на повторную модерацию, что бы клиент ни просил в
     -- NEW.status (включая одновременную попытку "відновити" с правкой
@@ -645,15 +750,15 @@ revoke execute on function public.enforce_listing_lifecycle() from public, anon,
 -- ============================================================================
 drop trigger if exists enforce_listing_rate_limit on public.listings;
 drop function if exists public.enforce_listing_rate_limit();
--- ^ триггер изначально из 20260818; функция к этому моменту — уже
--- ТРАНЗИТНАЯ версия её тела, замененная миграцией A (раздел 1.2, guard
--- "лимит только для status='active' INSERT", чтобы создание черновика в
--- окне A→деплой→B не расходовало лимит публикации). Обе роли полностью
--- поглощены enforce_listing_lifecycle() + check_publish_rate_limit() выше
--- — эта строка удаляет их насовсем, не только откатывает A. Точное
--- содержимое ОРИГИНАЛЬНОЙ (до A) версии для справки —
--- supabase/migrations/20260819181213_listing_rate_limit.sql, ни этот файл, ни A
--- его не меняют, только перестают использовать.
+-- ^ триггер изначально из 20260818; к этому моменту — уже ТРАНЗИТНАЯ
+-- версия из миграции A (раздел 1.2: BEFORE INSERT OR UPDATE, платит
+-- только на реальный переход в is_active=true). Эта строка удаляет и
+-- триггер, и функцию по имени безусловно — не зависит от того, какое
+-- именно определение у них было (INSERT-only или INSERT OR UPDATE),
+-- удаляет их насовсем, не только откатывает A. Обе роли полностью
+-- поглощены enforce_listing_lifecycle() + check_publish_rate_limit() выше.
+-- Точное содержимое ОРИГИНАЛЬНОЙ (до A) версии для справки —
+-- supabase/migrations/20260819181213_listing_rate_limit.sql.
 
 drop trigger if exists enforce_listing_status_policy on public.listings;
 -- ^ имя из более ранней (уже отозванной) версии этого файла — на
@@ -781,11 +886,22 @@ create policy "admin can delete any listing"
 --    переводит в pending_review и тратит запись в
 --    listing_publish_events, архивирование/восстановление работают
 --    через status, RLS отдаёт публично только status='active'.
--- 4. Если что-то не сходится — использовать ROLLBACK ниже НЕМЕДЛЕННО,
---    не пытаться патчить поверх на живой базе.
+-- 4. Если что-то не сходится — использовать подготовленный черновик отката
+--    supabase/prepared-rollbacks/listing_status_enforce_rollback.sql
+--    НЕМЕДЛЕННО: скопировать в supabase/migrations/ под АКТУАЛЬНОЙ на
+--    момент отката датой-версией и применить через обычный apply_migration
+--    (отдельное разрешение) — см. инструкцию в шапке того файла. Не
+--    пытаться патчить поверх на живой базе и не выполнять SQL из
+--    справочного раздела ниже вручную — 9th round audit: способ отката ЭТО
+--    применение того файла как миграции, а не "сначала вручную, потом
+--    оформить как миграцию". Черновик сознательно лежит вне
+--    supabase/migrations/, чтобы обычный `migration up` его не подхватил.
 --
 -- ============================================================================
--- ROLLBACK (справочно — НЕ выполняется автоматически)
+-- ROLLBACK (справочно — что делает
+-- supabase/prepared-rollbacks/listing_status_enforce_rollback.sql;
+-- НЕ выполнять эти операторы вручную — применяется только тот файл целиком,
+-- скопированный в migrations/ с актуальной версией)
 -- ============================================================================
 --
 -- -- 6. RLS — назад к состоянию из 20260811191254_stage2_rls_hardening.sql:
@@ -810,15 +926,40 @@ create policy "admin can delete any listing"
 -- drop function if exists public.enforce_listing_lifecycle();
 -- drop function if exists public.check_publish_rate_limit();
 --
--- -- Восстановить исходный триггер лимита ДОСЛОВНО из
--- -- supabase/migrations/20260819181213_listing_rate_limit.sql (разделы
--- -- "2. Триггерная функция" и "3. Триггер на public.listings" —
--- -- точная копия, не пересказ).
+-- -- Восстановить триггер лимита — ДОСЛОВНО из Migration A
+-- -- (20260830100000_listing_status_expand.sql, раздел 1.2) как она стоит
+-- -- ПОСЛЕ 6th round audit fix: BEFORE INSERT OR UPDATE, TG_OP-aware тело
+-- -- (charges только на реальный переход в is_active=true, INSERT или
+-- -- UPDATE), НЕ первоначальный оригинал из 20260819181213 (BEFORE INSERT
+-- -- ONLY, безусловный на каждый INSERT). Откат ТОЛЬКО B должен вернуть
+-- -- систему ровно в состояние "A применена, B ещё нет" — в этом состоянии
+-- -- обе защиты A (rate-limit guard и required-when-public CHECK) уже
+-- -- стоят и должны остаться, иначе откат B сам по себе тихо открыл бы обе
+-- -- регрессии, которых не было до отката.
+--
+-- -- Восстановить временную защиту от Migration A (тем же принципом —
+-- -- откат B возвращает в состояние "A без B", где эта защита обязана
+-- -- существовать):
+-- alter table public.listings add constraint listings_required_when_public
+--   check (
+--     is_active is not true or (
+--       title is not null and btrim(title) <> '' and
+--       type is not null and btrim(type) <> '' and
+--       price is not null and price > 0 and
+--       area is not null and area > 0 and
+--       district is not null and btrim(district) <> '' and
+--       address is not null and btrim(address) <> ''
+--     )
+--   );
 --
 -- -- 2-3. Constraints:
 -- alter table public.listings drop constraint if exists listings_rejection_reason_check;
 -- alter table public.listings drop constraint if exists listings_max_photos;
 -- alter table public.listings drop constraint if exists listings_required_for_review;
+--   -- Функция ниже дропается ПОСЛЕ constraint'а, который её вызывает —
+--   -- иначе DROP FUNCTION упадёт с "cannot drop function ... because other
+--   -- objects depend on it" (constraint зависит от функции).
+-- drop function if exists public.count_distinct_nonempty_images(text[]);
 --
 -- -- 1. Default:
 -- alter table public.listings alter column status set default 'active';

@@ -44,22 +44,29 @@
 --   3. status получает DEFAULT 'active' — ПОКА ЧТО ведёт себя как
 --      is_active по смыслу (см. раздел "Стратегия status между A и B"
 --      ниже — это самый важный раздел файла).
---   4. Заменяет ТЕЛО существующей enforce_listing_rate_limit() (не имя, не
---      триггер — см. раздел 1.2) так, чтобы она списывала лимит только с
---      status='active' INSERT (старая прямая публикация), а не с каждого
---      INSERT — иначе создание черновика (status='draft') расходовало бы
---      публикационный лимит впустую, а submit после B списывал бы его же
---      второй раз за одно и то же объявление.
+--   4. Заменяет ТЕЛО и ОПРЕДЕЛЕНИЕ (теперь BEFORE INSERT OR UPDATE, было
+--      только INSERT) существующей enforce_listing_rate_limit() (имя не
+--      меняется — см. раздел 1.2) так, чтобы лимит списывался ровно один
+--      раз за каждый реальный переход строки в публичное состояние
+--      (is_active становится true — INSERT сразу публичным, или UPDATE
+--      непубличной строки в публичную), а не с каждого INSERT/правки —
+--      иначе черновик (is_active=false) расходовал бы лимит впустую, а
+--      submit после B списывал бы его же второй раз за то же объявление.
 --   5. Индексы (owner_id), (status, created_at desc).
 --   6. Снимает NOT NULL с title/type/price/area/district/address —
---      предпосылка для частичного черновика (см. "Анализ NOT NULL").
+--      предпосылка для частичного черновика (см. "Анализ NOT NULL") — И
+--      добавляет компенсирующий CHECK listings_required_when_public (5th
+--      round audit fix), чтобы это снятие не оставляло ПУБЛИЧНЫЕ
+--      (is_active=true) строки без обязательных полей в окне до B.
 --
 -- Чего этот файл НЕ делает (сознательно, оставлено для B):
 --   - НЕ трогает RLS ни одной policy
---   - НЕ трогает ИМЯ/определение триггера enforce_listing_rate_limit —
---     только тело функции, которую он вызывает (см. п.4/раздел 1.2)
+--   - НЕ трогает ИМЯ триггера/функции enforce_listing_rate_limit — только
+--     тело и определение (INSERT OR UPDATE, см. п.4/раздел 1.2)
 --   - НЕ ставит триггер синхронизации/защиты переходов status/is_active
---   - НЕ добавляет CHECK на обязательные поля для pending_review
+--   - НЕ добавляет CHECK на обязательные поля для pending_review конкретно
+--     (только для is_active=true — временный, более узкий сигнал; полная,
+--     status-зависимая версия с проверкой фото — в Migration B)
 --   - НЕ удаляет и не переименовывает is_active или любую другую
 --     существующую колонку
 -- ============================================================================
@@ -225,25 +232,24 @@ alter table public.listings add column if not exists building_type text;
 --     20/24ч для нового клиента незаметно становится вдвое строже, чем
 --     заявлено продуктом.
 --
--- Правка ниже — CREATE OR REPLACE ТЕЛА той же функции (имя функции, имя и
--- определение триггера — BEFORE INSERT on public.listings — НЕ меняются,
--- их создал 20260818 и они здесь не пересоздаются заново, только
--- заменяется тело). Добавлено ровно одно условие в начале: лимит
--- считается, только если NEW.status = 'active' — то есть только для
--- INSERT, который ведёт себя как СТАРАЯ прямая публикация:
---   - старый (ещё не обновлённый) клиент из окна A→деплой не передаёт
---     status вообще — Postgres подставляет его из DEFAULT 'active'
---     (раздел 1 выше) ДО срабатывания BEFORE INSERT триггера, так что
---     NEW.status внутри функции уже равен 'active' — лимит для него
---     считается ровно как раньше, бесплатного обхода нет;
---   - новый клиент, вставляющий status='draft' явно (dbSaveDraft(null,…)
---     в src/lib/db.ts) — условие ложно, INSERT проходит без обращения к
---     listing_publish_events вообще, лимит не расходуется.
+-- Правка ниже заменяет и ТЕЛО, и ОПРЕДЕЛЕНИЕ триггера (имя функции и имя
+-- триггера — те же, что создал 20260818).
 --
--- Тело функции ПОСЛЕ этой проверки — дословная копия 20260818 (тот же
--- advisory lock, тот же burst/daily подсчёт, тот же INSERT в
--- listing_publish_events) — концептуальных изменений в самой логике
--- лимита нет, только новый ранний guard.
+-- 5th round audit, два найденных обхода, оба закрыты ключеванием на
+-- is_active (реальный сигнал публичности в A-окне — то же условие, что
+-- проверяет RLS "anyone can read active listings"), а не на status:
+--   1. Крафченный INSERT status='draft'+is_active=true — старый guard на
+--      status пропускал его без списания, а строка всё равно публична.
+--   2. INSERT черновика (is_active=false, лимит не платит — верно) с
+--      последующим UPDATE ... SET is_active=true — старый триггер был
+--      BEFORE INSERT ONLY и на этот UPDATE вообще не срабатывал: строка
+--      становится публичной бесплатно и без записи события.
+-- Оба закрываются одной функцией на `before insert or update`: платит
+-- ровно тот вызов, что переводит строку в публичное состояние (см. тело
+-- ниже), обычная правка уже публичной строки — нет.
+--
+-- Тело функции ПОСЛЕ guard'а — дословная копия 20260818 (тот же advisory
+-- lock, тот же burst/daily подсчёт, тот же INSERT в listing_publish_events).
 --
 -- Migration B (см. её раздел 5) удаляет и эту функцию, и этот триггер
 -- целиком по тем же именам — то, что дропается там, это уже ЭТА,
@@ -263,9 +269,24 @@ declare
   v_lock_key bigint;
   v_count_burst integer;
   v_count_daily integer;
+  v_becomes_public boolean;
 begin
-  -- Единственное добавление к оригиналу 20260818 — см. пояснение выше.
-  if NEW.status is distinct from 'active' then
+  -- 5th round audit fix — charge whenever a row BECOMES publicly visible
+  -- (is_active is true), the actual signal RLS reads in the A-only window
+  -- — not status, which has no bearing until Migration B. Two ways a row
+  -- can become public, both must pay exactly once:
+  --   INSERT — OLD doesn't exist, never referenced here; becomes public
+  --   iff NEW.is_active is true.
+  --   UPDATE — becomes public iff it WASN'T before (OLD.is_active is not
+  --   true) and now IS (NEW.is_active is true). An already-public row
+  --   being edited (OLD true, NEW true) is not a new publication — free.
+  if TG_OP = 'INSERT' then
+    v_becomes_public := (NEW.is_active is true);
+  else
+    v_becomes_public := (OLD.is_active is not true) and (NEW.is_active is true);
+  end if;
+
+  if not v_becomes_public then
     return NEW;
   end if;
 
@@ -304,10 +325,15 @@ $$;
 
 revoke execute on function public.enforce_listing_rate_limit() from public, anon, authenticated;
 
--- Триггер сам НЕ пересоздаётся — 20260818 уже создал `enforce_listing_rate_limit`
--- (BEFORE INSERT on public.listings, FOR EACH ROW), CREATE OR REPLACE
--- FUNCTION выше меняет только то, что он выполняет. Ничего здесь делать
--- с самим триггером не нужно.
+-- 5th round audit fix — trigger now recreated (BEFORE INSERT on its own
+-- was the remaining bypass: UPDATE ... SET is_active=true on an already-
+-- inserted, non-public draft never fired anything, so it never charged).
+-- Same name, same function — drop+create is the only way to add "or update".
+drop trigger if exists enforce_listing_rate_limit on public.listings;
+create trigger enforce_listing_rate_limit
+  before insert or update on public.listings
+  for each row
+  execute function public.enforce_listing_rate_limit();
 
 
 -- ============================================================================
@@ -347,17 +373,53 @@ create index if not exists idx_listings_pending_review_queue
 -- listings не может существовать без этих шести значений; после —
 -- гарантирует. Обратная совместимость сохраняется, потому что ни один
 -- существующий писатель (src/lib/db.ts, весь текущий клиент) не
--- начинает вдруг присылать NULL — компенсирующая проверка "обязательно
--- для pending_review и далее" добавляется в migration B как CHECK,
--- зависящий от status, так что итоговая гарантия "нет неполных
--- РЕАЛЬНЫХ объявлений" не теряется — она просто становится условной
--- (обязательна вне draft), а не безусловной (обязательна всегда).
+-- начинает вдруг присылать NULL — постоянная проверка "обязательно для
+-- pending_review и далее" (зависящая от status) добавляется в migration B;
+-- но само по себе снятие NOT NULL здесь, БЕЗ какой-либо замещающей
+-- защиты именно в A-окне (до B), было 5th round audit находкой —
+-- см. следующий CHECK ниже, который её закрывает.
 alter table public.listings alter column title    drop not null;
 alter table public.listings alter column type     drop not null;
 alter table public.listings alter column price    drop not null;
 alter table public.listings alter column area     drop not null;
 alter table public.listings alter column district drop not null;
 alter table public.listings alter column address  drop not null;
+
+-- 5th round audit fix — регрессия: снятие NOT NULL выше само по себе не
+-- имеет никакой замещающей защиты в окне A-без-B (Migration B ставит свой
+-- CHECK на status, но пока B не применена, status ничего не решает — RLS
+-- и реальная публичность по-прежнему держатся на is_active). Без этого
+-- CHECK любая строка — включая ПУБЛИЧНУЮ (is_active=true) — могла бы
+-- остаться без title/type/price/area/district/address, чего до этой
+-- миграции Postgres не допускал НИ ДЛЯ ОДНОЙ строки.
+--
+-- Минимальная переходная защита, а не новая lifecycle-модель: единственный
+-- сигнал, который что-либо решает в A-окне — is_active (то самое условие
+-- живой RLS-policy "anyone can read active listings"). Правило: если
+-- строка НЕ публична (is_active is not true — false или null, та же
+-- трёхзначная логика, что и в guard'е rate-limit выше), полей может не
+-- быть — это черновик. Если строка ПУБЛИЧНА (is_active is true), все шесть
+-- полей обязаны быть заполнены — ровно та гарантия, что действовала до
+-- этой миграции безусловно, теперь действует условно (только для
+-- публичных). Постоянная, куда более полная версия (с проверкой фото,
+-- завязанная на status) — уже в Migration B (listings_required_for_review)
+-- — эта проверка временная и снимается тем же файлом B (см. его
+-- изменения), как только он вводит постоянную модель.
+--
+-- CHECK применяется к КАЖДОЙ записи строки — и INSERT, и UPDATE — Postgres
+-- не различает их для этого механизма, так что попытка UPDATE, переводящая
+-- неполный черновик сразу в is_active=true, тоже будет отклонена.
+alter table public.listings add constraint listings_required_when_public
+  check (
+    is_active is not true or (
+      title is not null and btrim(title) <> '' and
+      type is not null and btrim(type) <> '' and
+      price is not null and price > 0 and
+      area is not null and area > 0 and
+      district is not null and btrim(district) <> '' and
+      address is not null and btrim(address) <> ''
+    )
+  );
 
 
 -- ============================================================================
@@ -381,14 +443,24 @@ alter table public.listings alter column address  drop not null;
 -- ROLLBACK (справочно — НЕ выполняется автоматически)
 -- ============================================================================
 --
--- -- Раздел 1.2 — вернуть enforce_listing_rate_limit() к ОРИГИНАЛЬНОМУ телу
--- -- дословно из supabase/migrations/20260819181213_listing_rate_limit.sql
--- -- (create or replace function ... до "return new; end; $$;", без guard
--- -- "if NEW.status is distinct from 'active' then return NEW; end if;").
--- -- Триггер (имя/BEFORE INSERT) не трогать — он не создавался этим файлом.
+-- -- Раздел 1.2 — вернуть enforce_listing_rate_limit() (и тело, и
+-- -- определение) к ОРИГИНАЛУ дословно из
+-- -- supabase/migrations/20260819181213_listing_rate_limit.sql:
+-- drop trigger if exists enforce_listing_rate_limit on public.listings;
+-- create trigger enforce_listing_rate_limit
+--   before insert on public.listings
+--   for each row execute function public.enforce_listing_rate_limit();
+--   -- (тело функции — оригинал из 20260819181213, без is_active/TG_OP guard)
 -- -- Актуально, только если откатывается ТОЛЬКО A, без применённой B (если
 -- -- B уже применена, эта функция/триггер к тому моменту уже удалены её
 -- -- разделом 5, откатывать здесь нечего).
+--
+-- alter table public.listings drop constraint if exists listings_required_when_public;
+--   -- 5th round audit fix — снимать вместе с NOT NULL restore ниже, той же
+--   -- логикой: строки с неполными полями, накопившиеся как публичные ПОКА
+--   -- этот CHECK действовал, не должны внезапно заблокировать restore NOT
+--   -- NULL (хотя таких по определению быть не может, раз constraint их не
+--   -- пропускал — но откат должен быть безопасен и без этого рассуждения).
 --
 -- alter table public.listings alter column title    set not null;
 -- alter table public.listings alter column type     set not null;
