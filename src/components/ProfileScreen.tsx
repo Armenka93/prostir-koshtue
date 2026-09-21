@@ -7,16 +7,11 @@ import {
   dbUpdateAccount, dbUploadAvatar,
   type DbAccountSummary, type DbFeedback,
 } from '@/lib/db'
-import { changePassword, changeEmail } from '@/lib/auth'
+import { changePassword, changeEmail, isAdmin } from '@/lib/auth'
+import { getStatusMeta } from '@/lib/listingStatus'
 import { usePTR } from '@/hooks/usePTR'
 import PTRIndicator from './PTRIndicator'
 import ConfirmModal from '@/components/ConfirmModal'
-
-// Single source of admin status: accounts.role, via User.role (populated
-// from the DB in src/lib/auth.ts buildUser()). No client-side email check.
-function isAdmin(user: User | null | undefined): boolean {
-  return user?.role === 'admin'
-}
 
 interface Props {
   user: User | null; isGuest: boolean; onLogin: () => void
@@ -24,9 +19,21 @@ interface Props {
   favCount: number; onLogout: () => void; showToast: (m: string) => void
   listings?: ListingData[]; onListing?: (l: ListingData) => void
   onDeleteListing?: (id: number) => void; onRefresh?: () => Promise<void>
+  // Pre-migration audit fix (3rd round, blocker 1) — ids currently
+  // mid-delete via onDeleteListing (page.tsx's handleAdminDeleteListing).
+  // AdminDashboard uses this to disable/spin the specific row's trash
+  // button instead of letting a repeat click fire a second request.
+  deletingListingIds?: Set<number>
   onMyListings?: () => void
   onEditListing?: (l: ListingData) => void
   onArchiveListing?: (id: number) => void
+  onGoFavorites?: () => void
+  onGoMessages?: () => void
+  // E.2.4 — visible only when isAdmin(user) (checked both here for
+  // visibility and again, independently, by page.tsx before it actually
+  // renders ModerationScreen — see that file: a UX gate has to hold even
+  // if something upstream of it is wrong, not just hide a button).
+  onOpenModeration?: () => void
 }
 
 const IC = {
@@ -58,10 +65,36 @@ function Card({ children }: { children: React.ReactNode }) {
   return <div style={{ background:'#1A1F2E', borderRadius:18, overflow:'hidden', border:'1px solid #2A3045' }}>{children}</div>
 }
 
+// Desktop-only cabinet sidebar (see .profile-sidebar-nav in globals.css) —
+// mobile navigation is unchanged (BottomNav). Only links to screens that
+// already exist; no new screens/features added here.
+function SidebarNav({ onMyListings, onGoFavorites, onGoMessages, onLogout }: {
+  onMyListings?: () => void; onGoFavorites?: () => void; onGoMessages?: () => void; onLogout: () => void
+}) {
+  const itemStyle = (active: boolean): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 14px',
+    background: active ? '#FF6B1A18' : 'transparent', border: 'none', borderRadius: 12,
+    color: active ? '#FF6B1A' : '#A0A8BC', fontSize: 14, fontWeight: active ? 700 : 500,
+    cursor: active ? 'default' : 'pointer', textAlign: 'left', fontFamily: 'Inter, sans-serif',
+  })
+  return (
+    <nav className="profile-sidebar-nav" aria-label="Навігація особистого кабінету">
+      <div style={{ background: '#1A1F2E', border: '1px solid #2A3045', borderRadius: 18, padding: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <button style={itemStyle(true)} aria-current="page">👤 Профіль</button>
+        {onMyListings && <button onClick={onMyListings} style={itemStyle(false)}>🏢 Мої оголошення</button>}
+        {onGoFavorites && <button onClick={onGoFavorites} style={itemStyle(false)}>❤️ Обране</button>}
+        {onGoMessages && <button onClick={onGoMessages} style={itemStyle(false)}>💬 Чати</button>}
+        <div style={{ height: 1, background: '#2A3045', margin: '6px 4px' }} />
+        <button onClick={onLogout} style={{ ...itemStyle(false), color: '#EF4444' }}>🚪 Вийти з акаунту</button>
+      </div>
+    </nav>
+  )
+}
+
 function SheetModal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:600, display:'flex', alignItems:'flex-end', backdropFilter:'blur(4px)' }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ width:'100%', maxWidth:430, margin:'0 auto', background:'#1A1F2E', borderRadius:'24px 24px 0 0', padding:'20px', paddingBottom:'max(24px,env(safe-area-inset-bottom,24px))', border:'1px solid #2A3045', maxHeight:'80vh', overflowY:'auto' as const }}>
+    <div className="profile-modal-overlay" style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:600, display:'flex', backdropFilter:'blur(4px)' }} onClick={onClose}>
+      <div className="profile-modal-panel" onClick={e => e.stopPropagation()} style={{ width:'100%', margin:'0 auto', background:'#1A1F2E', padding:'20px', paddingBottom:'max(24px,env(safe-area-inset-bottom,24px))', border:'1px solid #2A3045', maxHeight:'80vh', overflowY:'auto' as const }}>
         <div style={{ width:36, height:4, background:'#2A3045', borderRadius:2, margin:'0 auto 20px' }} />
         <div style={{ fontSize:18, fontWeight:700, color:'#fff', marginBottom:16 }}>{title}</div>
         {children}
@@ -186,8 +219,8 @@ function EditModal({ user, onClose, onSaved, showToast }: { user: User; onClose:
   }
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:600, display:'flex', alignItems:'flex-end', backdropFilter:'blur(4px)' }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ width:'100%', maxWidth:430, margin:'0 auto', background:'#1A1F2E', borderRadius:'24px 24px 0 0', padding:'20px', paddingBottom:'max(24px,env(safe-area-inset-bottom,24px))', border:'1px solid #2A3045', maxHeight:'85vh', overflowY:'auto' as const }}>
+    <div className="profile-modal-overlay" style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:600, display:'flex', backdropFilter:'blur(4px)' }} onClick={onClose}>
+      <div className="profile-modal-panel" onClick={e => e.stopPropagation()} style={{ width:'100%', margin:'0 auto', background:'#1A1F2E', padding:'20px', paddingBottom:'max(24px,env(safe-area-inset-bottom,24px))', border:'1px solid #2A3045', maxHeight:'85vh', overflowY:'auto' as const }}>
         <div style={{ width:36, height:4, background:'#2A3045', borderRadius:2, margin:'0 auto 20px' }} />
         <div style={{ fontSize:18, fontWeight:700, color:'#fff', marginBottom:20 }}>Редагувати профіль</div>
 
@@ -239,7 +272,7 @@ function EditModal({ user, onClose, onSaved, showToast }: { user: User; onClose:
 }
 
 // ── ADMIN DASHBOARD ───────────────────────────────────────────
-function AdminDashboard({ propListings, onDeleteListing, registerReload }: { propListings: ListingData[]; onDeleteListing?: (id: number) => void; registerReload?: (fn: () => void) => void }) {
+function AdminDashboard({ propListings, onDeleteListing, deletingListingIds, registerReload }: { propListings: ListingData[]; onDeleteListing?: (id: number) => void; deletingListingIds?: Set<number>; registerReload?: (fn: () => void) => void }) {
   const [tab, setTab] = useState<'stats'|'listings'|'feedback'|'users'>('stats')
   const [accounts, setAccounts] = useState<DbAccountSummary[]>([])
   const [feedbacks, setFeedbacks] = useState<DbFeedback[]>([])
@@ -320,7 +353,9 @@ function AdminDashboard({ propListings, onDeleteListing, registerReload }: { pro
                 <div style={{ fontSize:12, fontWeight:600, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{l.title}</div>
                 <div style={{ fontSize:11, color:'#6B7280' }}>{l.ownerName || l.userId} • {l.price?.toLocaleString('uk-UA')} ₴</div>
               </div>
-              {onDeleteListing && <button onClick={() => setPendingDeleteId(l.id)} style={{ background:'#EF444418', border:'none', borderRadius:8, padding:'6px 8px', color:'#EF4444', cursor:'pointer', display:'flex', alignItems:'center', flexShrink:0 }}>{IC.trash}</button>}
+              {onDeleteListing && (() => { const busy = deletingListingIds?.has(l.id) ?? false; return (
+                <button onClick={() => !busy && setPendingDeleteId(l.id)} disabled={busy} style={{ background:'#EF444418', border:'none', borderRadius:8, padding:'6px 8px', color:'#EF4444', cursor:busy?'default':'pointer', display:'flex', alignItems:'center', flexShrink:0, opacity:busy?0.5:1 }}>{busy ? '⏳' : IC.trash}</button>
+              ) })()}
             </div>
           ))}
         </div>
@@ -372,7 +407,7 @@ function AdminDashboard({ propListings, onDeleteListing, registerReload }: { pro
     </div>
   )
 }
-export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings=[], onListing, onDeleteListing, onRefresh, onMyListings, onEditListing, onArchiveListing }: Props) {
+export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, onFeedback, favCount, onLogout, showToast, listings=[], onListing, onDeleteListing, deletingListingIds, onRefresh, onMyListings, onEditListing, onArchiveListing, onGoFavorites, onGoMessages, onOpenModeration }: Props) {
   const [notif, setNotif] = useState(true)
   const [showEdit, setShowEdit] = useState(false)
   const [showPrivacy, setShowPrivacy] = useState(false)
@@ -385,15 +420,34 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
     adminReloadRef.current?.()
   })
   const admin = isAdmin(currentUser)
-  const myListings = listings.filter(l =>
-    (l.ownerId === currentUser?.id || l.userId === currentUser?.id || l.userId === 'me') && l.isActive !== false
-  )
+  // Pre-audit bug (found in the 2nd-round pre-migration audit): this used
+  // to filter on `l.isActive !== false` — the pre-status-model signal,
+  // which after Migration B is false for every status except 'active'.
+  // That silently hid every draft/pending_review/rejected/paused listing
+  // from this quick preview (the badge below only ever said "Активне"
+  // because active was structurally the only status that could reach it).
+  // Fixed to mirror RequestsScreen's status-driven split: ownership only,
+  // then exclude 'draft' (onEditListing below opens EditListingForm, which
+  // — same as RequestsScreen's onEdit — is not the right editor for a
+  // draft; a draft needs the wizard's continue-draft flow, not wired into
+  // this compact widget) and 'archived' (out of the active workflow, same
+  // as RequestsScreen's tab split — still reachable via "Усі →"). A
+  // legacy null-status row (pre-Migration-A) falls back to the old
+  // isActive signal, same fallback RequestsScreen's tabOf() uses.
+  const myListings = listings.filter(l => {
+    if (l.ownerId !== currentUser?.id && l.userId !== currentUser?.id && l.userId !== 'me') return false
+    if (l.status === 'draft' || l.status === 'archived') return false
+    if (l.status != null) return true
+    return l.isActive !== false
+  })
   const totalViews = myListings.reduce((s, l) => s + (l.views || 0), 0)
 
   useEffect(() => { setCurrentUser(user) }, [user])
 
   if (!currentUser) {
     return (
+      <div className="desktop-wide-screen">
+      <div className="desktop-wide-screen-inner">
       <div style={{ paddingBottom:90 }}>
         <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
         <div style={{ padding:'48px 20px 16px', paddingTop:'max(48px,env(safe-area-inset-top,48px))', background:'#0D1018' }}>
@@ -406,12 +460,18 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
           <button onClick={onLogin} style={{ width:'100%', maxWidth:300, padding:'16px', background:'linear-gradient(135deg,#FF6B1A,#FF8C3A)', border:'none', borderRadius:14, color:'#fff', fontSize:16, fontWeight:700, cursor:'pointer' }}>Увійти / Зареєструватись</button>
         </div>
       </div>
+      </div>
+      </div>
     )
   }
 
   const u = currentUser
 
   return (
+    <div className="desktop-wide-screen">
+    <div className="desktop-wide-screen-inner">
+    <div className="profile-desktop-grid">
+    <SidebarNav onMyListings={onMyListings} onGoFavorites={onGoFavorites} onGoMessages={onGoMessages} onLogout={onLogout} />
     <div style={{ paddingBottom:90 }}>
       <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
 
@@ -455,8 +515,17 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
       </div>
 
       <div style={{ padding:'20px 20px 0' }}>
+        {/* E.2.4 — "Модерація" entry point, admin-only. Point 7: not in the
+            main mobile BottomNav (untouched for ordinary users) — a Row
+            here, inside the profile's own admin-gated section. */}
+        {admin && onOpenModeration && (
+          <div style={{ marginBottom: 16 }}>
+            <Row icon={IC.shield} label="Модерація" sub="Оголошення на розгляді" color="#FFB020" onClick={onOpenModeration} right={IC.arrow} />
+          </div>
+        )}
+
         {/* ADMIN DASHBOARD */}
-        {admin && <AdminDashboard propListings={listings} onDeleteListing={onDeleteListing} registerReload={fn => { adminReloadRef.current = fn }} />}
+        {admin && <AdminDashboard propListings={listings} onDeleteListing={onDeleteListing} deletingListingIds={deletingListingIds} registerReload={fn => { adminReloadRef.current = fn }} />}
 
         {/* QUICK ACTIONS */}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:20 }}>
@@ -493,12 +562,17 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
                     </div>
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6, flexShrink:0 }}>
-                    <span style={{ background:'#22C55E22', color:'#22C55E', fontSize:10, fontWeight:700, borderRadius:20, padding:'2px 7px' }}>Активне</span>
+                    {(() => { const meta = getStatusMeta(l.status); return (
+                      <span style={{ background: meta.bg, color: meta.color, fontSize:10, fontWeight:700, borderRadius:20, padding:'2px 7px' }}>{meta.label}</span>
+                    ) })()}
                     <div style={{ display:'flex', gap:4 }}>
                       {onEditListing && (
                         <button onClick={() => onEditListing(l)} style={{ background:'#FFB02018', border:'none', borderRadius:8, padding:'5px 7px', color:'#FFB020', cursor:'pointer', display:'flex', alignItems:'center' }}>{IC.edit}</button>
                       )}
-                      {onArchiveListing && (
+                      {/* dbArchiveListing only allows active/paused as the source status
+                          (see src/lib/db.ts) — hiding the button otherwise instead of
+                          rendering a control that would silently fail server-side. */}
+                      {onArchiveListing && (l.status === 'active' || l.status === 'paused') && (
                         <button onClick={() => setPendingArchiveId(l.id)} style={{ background:'#EF444418', border:'none', borderRadius:8, padding:'5px 7px', color:'#EF4444', cursor:'pointer', display:'flex', alignItems:'center' }}>{IC.trash}</button>
                       )}
                     </div>
@@ -547,6 +621,9 @@ export default function ProfileScreen({ user, isGuest, onLogin, onAddListing, on
           onCancel={() => setPendingArchiveId(null)}
         />
       )}
+    </div>
+    </div>
+    </div>
     </div>
   )
 }

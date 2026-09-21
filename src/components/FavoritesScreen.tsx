@@ -1,6 +1,7 @@
 'use client'
 import { usePTR } from '@/hooks/usePTR'
 import PTRIndicator from './PTRIndicator'
+import EmptyState from './EmptyState'
 import type { ListingData } from '@/types'
 import { TYPE_COLORS } from '@/types'
 
@@ -17,6 +18,8 @@ export default function FavoritesScreen({ favorites, allListings, onListing, onF
   const saved = allListings.filter(l => favorites.includes(l.id))
 
   return (
+    <div className="desktop-wide-screen">
+    <div className="desktop-wide-screen-inner">
     <div style={{ paddingBottom: 90 }}>
       <PTRIndicator state={ptr.state} pullY={ptr.pullY} />
 
@@ -32,21 +35,19 @@ export default function FavoritesScreen({ favorites, allListings, onListing, onF
         <div style={{ fontSize: 13, color: '#A0A8BC' }}>Ваші обрані комерційні приміщення</div>
       </div>
 
-      <div style={{ padding: '4px 20px' }}>
+      <div className="favorites-grid" style={{ padding: '4px 20px' }}>
         {saved.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 80, textAlign: 'center' }}>
-            <div style={{ width: 80, height: 80, background: '#1A1F2E', borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36, marginBottom: 20, border: '1px solid #2A3045' }}>🤍</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Список порожній</div>
-            <div style={{ fontSize: 14, color: '#A0A8BC', lineHeight: 1.6, maxWidth: 260 }}>
-              Натискайте ❤️ на об'єктах, щоб зберегти
-            </div>
-          </div>
+          <EmptyState
+            icon="🤍"
+            title="Список порожній"
+            subtitle="Натискайте ❤️ на об'єктах, щоб зберегти"
+          />
         ) : (
           saved.map(listing => {
             const tc = TYPE_COLORS[listing.type] || '#FF6B1A'
             const img = listing.images?.[0] || '/no-photo.png'
             return (
-              <div key={listing.id} style={{ background: '#1A1F2E', borderRadius: 16, overflow: 'hidden', marginBottom: 14, border: '1px solid #2A3045', position: 'relative' }}>
+              <div key={listing.id} className="favorites-card" style={{ background: '#1A1F2E', borderRadius: 16, overflow: 'hidden', marginBottom: 14, border: '1px solid #2A3045', position: 'relative' }}>
                 <img src={img} alt={listing.title} style={{ width: '100%', height: 160, objectFit: 'cover' }} loading="lazy" />
                 <button
                   onClick={e => { e.stopPropagation(); onFavorite(listing.id) }}
@@ -68,6 +69,8 @@ export default function FavoritesScreen({ favorites, allListings, onListing, onF
           })
         )}
       </div>
+    </div>
+    </div>
     </div>
   )
 }

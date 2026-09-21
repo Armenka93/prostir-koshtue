@@ -5,10 +5,10 @@
  * getSession / onAuthStateChange. The `accounts` table is still used as a
  * profile store (name/phone/role/avatar_url), looked up by email — that
  * works today without any schema change. This file never inserts into
- * `accounts` itself: once supabase/migrations/20260806_auth_rls_hardening.sql
- * (STAGE 1) is applied, its handle_new_auth_user() trigger becomes the one
+ * `accounts` itself: once supabase/migrations/20260808072944_stage1_auth_bridge_columns_and_trigger.sql
+ * is applied, its handle_new_auth_user() trigger becomes the one
  * and only place that creates a profile row, keyed by auth_id — see the
- * comment in registerAccount() for what that means before STAGE 1 lands.
+ * comment in registerAccount() for what that means before that migration lands.
  *
  * The old hash-based accounts login (LEGACY section at the bottom of this
  * file) is kept for reference/rollback only — nothing in the app's live
@@ -18,6 +18,20 @@ import type { AuthChangeEvent, EmailOtpType, User as SupabaseAuthUser } from '@s
 import { supabase } from './supabase'
 import { dbFindAccount, isSupabaseReady } from './db'
 import type { User } from '@/types'
+
+// Single source of admin status app-wide: accounts.role (via User.role,
+// populated below in buildUser()) — the SAME column public.is_admin() (the
+// RLS/trigger helper, see supabase/migrations/20260808072944_stage1_auth_bridge_columns_and_trigger.sql,
+// section 1.6 — defined there, used by the RLS policies in
+// 20260811191254_stage2_rls_hardening.sql) checks server-side. This is a UX gate ONLY (E.2.4 requirement 1) — it
+// decides what a client shows/hides, never what the database allows; a
+// user who forges a request around this check still hits the same RLS/
+// trigger every other request does. Previously duplicated locally in
+// ProfileScreen.tsx — consolidated here so ModerationScreen and any future
+// admin-only UI share the exact same check instead of drifting copies.
+export function isAdmin(user: User | null | undefined): boolean {
+  return user?.role === 'admin'
+}
 
 // Supabase Auth returns one generic message for both "no such account" and
 // "wrong password" (Invalid login credentials) — deliberately, to avoid
@@ -95,11 +109,11 @@ export async function registerAccount(
 
   // The `accounts` profile row (name/phone/role/avatar_url) is created by a
   // single source: the handle_new_auth_user() DB trigger on auth.users, from
-  // supabase/migrations/20260806_auth_rls_hardening.sql (STAGE 1) — not by
-  // this client code. Deliberately NOT inserting into `accounts` here too:
-  // doing both would race the trigger and either duplicate the row (if keyed
-  // differently) or fight over who's authoritative for it. Until STAGE 1 is
-  // applied, no `accounts` row exists yet for a freshly-registered user —
+  // supabase/migrations/20260808072944_stage1_auth_bridge_columns_and_trigger.sql
+  // — not by this client code. Deliberately NOT inserting into `accounts` here
+  // too: doing both would race the trigger and either duplicate the row (if
+  // keyed differently) or fight over who's authoritative for it. Until that
+  // migration is applied, no `accounts` row exists yet for a freshly-registered user —
   // buildUser() below already falls back to auth user_metadata (name/phone)
   // and a default 'landlord' role in that case, so login/display still work;
   // only avatar_url and a DB-persisted role are unavailable until then.
@@ -152,8 +166,16 @@ export async function loginAccount(
 // itself. token_hash/type come from the confirmation link's query string
 // (?token_hash=...&type=signup), set by the "Confirm signup" email
 // template pointing at {{ .RedirectTo }} instead of the raw Supabase
-// /verify link — see supabase/migrations/20260806_auth_rls_hardening.sql's
-// neighboring notes for why a plain GET must never consume the token.
+// /verify link — a plain GET must never consume the token (email scanners/
+// link-preview bots follow GET links automatically, which would silently
+// burn a one-time confirmation token before the real user ever clicks it).
+// Normalization note (migration history fetch, 4th round audit): this
+// comment previously pointed at the original local draft migration file for
+// "neighboring notes" on this — neither of the two actually-applied remote
+// migrations that draft corresponds to (20260808072944_stage1_auth_bridge_columns_and_trigger.sql /
+// 20260811191254_stage2_rls_hardening.sql) contains any such notes, so the
+// cross-reference was already stale/inaccurate and has been dropped rather
+// than pointed at a file that doesn't contain this content either.
 export async function confirmEmailToken(
   tokenHash: string, type: string
 ): Promise<{ ok: boolean; error?: string }> {
@@ -201,6 +223,49 @@ export async function changePassword(
   if (reauthError) return { ok: false, error: 'Поточний пароль невірний.' }
 
   const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) return { ok: false, error: mapAuthError(error.message) }
+  return { ok: true }
+}
+
+// Sends a password-recovery email; the link redirects to /auth/reset-password
+// with a recovery session Supabase's client picks up automatically
+// (detectSessionInUrl: true, see supabase.ts) — that page then calls
+// supabase.auth.updateUser({password}) while that session is active.
+export async function requestPasswordReset(email: string): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseReady()) return { ok: false, error: 'База даних не налаштована.' }
+  const { error } = await supabase.auth.resetPasswordForEmail(email.toLowerCase().trim(), {
+    redirectTo: `${window.location.origin}/auth/reset-password`,
+  })
+  if (error) return { ok: false, error: mapAuthError(error.message) }
+  return { ok: true }
+}
+
+// Called from /auth/reset-password, only while a PASSWORD_RECOVERY session
+// (from the emailed link) is active — see requestPasswordReset() above.
+export async function updatePasswordAfterReset(newPassword: string): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseReady()) return { ok: false, error: 'База даних не налаштована.' }
+  if (newPassword.length < 6) return { ok: false, error: 'Пароль має містити щонайменше 6 символів.' }
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) return { ok: false, error: mapAuthError(error.message) }
+  return { ok: true }
+}
+
+// Real OAuth call only — never simulates a signed-in state. If the Google
+// provider isn't actually enabled in the Supabase project, Supabase itself
+// returns an error here (e.g. "Unsupported provider"); the caller shows
+// that error as-is rather than pretending the sign-in succeeded. The UI
+// only renders this option at all when NEXT_PUBLIC_GOOGLE_AUTH_ENABLED=true,
+// which should only be set once the provider is actually configured in the
+// Supabase dashboard + Google Cloud Console.
+export async function signInWithGoogle(): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseReady()) return { ok: false, error: 'База даних не налаштована.' }
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin },
+  })
+  // On success this navigates away to Google immediately — there's no
+  // "signed in" state to return here at all; execution only reaches this
+  // return on failure (e.g. provider not enabled, network error).
   if (error) return { ok: false, error: mapAuthError(error.message) }
   return { ok: true }
 }

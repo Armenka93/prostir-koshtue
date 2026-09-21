@@ -1,0 +1,157 @@
+-- ============================================================================
+-- POST-MIGRATION-B CHECKLIST / RUNBOOK (E.2.4, 2nd round audit, п.1)
+-- ============================================================================
+-- NOT a smoke test — every statement below is commented out, so this file
+-- executes nothing on its own. It is a CHECKLIST/RUNBOOK: a human-readable
+-- list of scenario → action → expected-result entries for a person to walk
+-- through manually (uncommenting as they go) against a disposable staging
+-- project, AFTER Migration B has actually been applied there.
+--
+-- For an ACTUALLY EXECUTABLE version of a subset of these scenarios, see
+-- 20260830_listing_lifecycle_smoke_test_executable.sql in this same
+-- folder — real statements, BEGIN/ROLLBACK-wrapped, with RAISE EXCEPTION
+-- assertions. It intentionally does NOT cover everything this checklist
+-- does (see its own header for exactly what it can and can't check and
+-- why) — this file remains the complete scenario list; the executable
+-- file is a partial, safer-to-automate subset of it.
+--
+-- NOT a migration. Deliberately lives OUTSIDE supabase/migrations/ so no
+-- migration tool that sweeps that folder (`supabase db push`, `migration
+-- up`, etc.) can ever pick this up — this file is drafting-only reference
+-- material for a HUMAN to run manually, statement by statement, against a
+-- disposable staging project AFTER Migration B
+-- (../migrations/20260830110000_listing_status_enforce.sql) has actually been
+-- applied there, to confirm the deployed trigger really produces the
+-- transition table documented in that file's "Гарантии" comment and
+-- modeled in scripts/lifecycleTimestampsModel.ts /
+-- scripts/test-lifecycle-timestamps.ts. Every statement below is commented
+-- out, so even pasting this whole file into a SQL runner by mistake is a
+-- no-op — nothing here executes on its own.
+--
+-- How to use: run as postgres/service_role (to freely set up fixtures),
+-- but perform the actual approve/reject/submit/archive/restore statements
+-- as the two real roles this trigger actually branches on — an
+-- `authenticated` session for an ordinary owner, and one for a user whose
+-- `accounts.role = 'admin'` (public.is_admin() must return true for them) —
+-- via `set local role`/`set local "request.jwt.claims"` or the
+-- Supabase SQL editor's "Run as" role switcher, whichever your project
+-- supports. Running everything as postgres/service_role would bypass the
+-- owner/admin branching entirely and prove nothing.
+--
+-- Each scenario: fixture → action → expected SELECT. Clean up your own
+-- fixtures after (DELETE the test row) — this file inserts nothing
+-- permanent on its own.
+
+-- ── Scenario 1: draft → pending_review (owner submit) ──────────────────
+-- begin;
+--   insert into public.listings (owner_id, user_id, status, title, type, price, area, district, address, images)
+--     values ('<owner-uuid>', '<owner-uuid>', 'draft', 'Test', 'Офіс', 10000, 30, 'Центр', 'Test 1', array['a.jpg','b.jpg','c.jpg'])
+--     returning id \gset
+--   -- expect: pending_review_at/published_at/archived_at/moderated_at/moderated_by/rejection_reason all NULL
+--   select pending_review_at, published_at, archived_at, moderated_at, moderated_by, rejection_reason
+--     from public.listings where id = :id;
+--
+--   update public.listings set status = 'pending_review' where id = :id;
+--   -- expect: pending_review_at = now-ish, the other five still NULL
+--   select pending_review_at, published_at, archived_at, moderated_at, moderated_by, rejection_reason
+--     from public.listings where id = :id;
+-- rollback; -- or delete the row explicitly if not using a transaction
+
+-- ── Scenario 2: pending_review → active (admin approve), then significant
+--    edit forces it BACK to pending_review, then admin rejects ───────────
+-- begin;
+--   -- ... fixture at pending_review (as scenario 1) ...
+--   -- as admin:
+--   update public.listings set status = 'active' where id = :id;
+--   -- expect: published_at = now, moderated_at = now, moderated_by = <admin uuid>,
+--   --         archived_at NULL, rejection_reason NULL, pending_review_at UNCHANGED
+--   --         from the earlier submit.
+--   select pending_review_at, published_at, archived_at, moderated_at, moderated_by, rejection_reason
+--     from public.listings where id = :id;
+--
+--   -- as owner, edit a significant field (e.g. price):
+--   update public.listings set price = 12000 where id = :id;
+--   -- expect: status flips to 'pending_review' automatically, pending_review_at
+--   --         = a NEW now (later than the first one), moderated_at/by NULL,
+--   --         rejection_reason NULL, published_at UNCHANGED (still the earlier
+--   --         approve timestamp — honest history), archived_at NULL.
+--   select status, pending_review_at, published_at, archived_at, moderated_at, moderated_by, rejection_reason
+--     from public.listings where id = :id;
+--
+--   -- as admin, reject:
+--   update public.listings set status = 'rejected', rejection_reason = 'Потрібно уточнити ціну' where id = :id;
+--   -- expect: moderated_at = now, moderated_by = admin uuid, rejection_reason =
+--   --         the given text, published_at STILL the original approve time
+--   --         (this row really was live once — that's honest history, UI must
+--   --         key off status='rejected', not off published_at being non-null),
+--   --         archived_at NULL, pending_review_at unchanged from the edit above.
+--   select status, pending_review_at, published_at, archived_at, moderated_at, moderated_by, rejection_reason
+--     from public.listings where id = :id;
+-- rollback;
+
+-- ── Scenario 3: active → archived → significant edit (while archived,
+--    before resubmitting) → pending_review, confirming archived_at clears ──
+-- begin;
+--   -- ... fixture at active (approved once) ...
+--   -- as owner:
+--   update public.listings set status = 'archived' where id = :id;
+--   -- expect: archived_at = now, published_at unchanged.
+--   select archived_at, published_at from public.listings where id = :id;
+--
+--   -- as owner, significant edit while archived:
+--   update public.listings set title = 'Updated title' where id = :id;
+--   -- expect: status → pending_review, pending_review_at = now,
+--   --         archived_at NOW NULL (this is the specific case the 2nd round
+--   --         audit flagged — archived_at must not keep looking "current"
+--   --         once the row has left archived), moderated_at/by NULL.
+--   select status, pending_review_at, archived_at, moderated_at, moderated_by
+--     from public.listings where id = :id;
+-- rollback;
+
+-- ── Scenario 4: paused → active (restore) — published_at refreshed,
+--    moderated_at/by preserved as history ────────────────────────────────
+-- begin;
+--   -- ... fixture at active, then owner pauses it ...
+--   update public.listings set status = 'paused' where id = :id;
+--   -- capture moderated_at/moderated_by here — they should be unchanged
+--   -- from whenever this row was last actually approved.
+--   select moderated_at, moderated_by, published_at, archived_at from public.listings where id = :id;
+--
+--   -- as owner, restore:
+--   update public.listings set status = 'active' where id = :id;
+--   -- expect: published_at = a NEW now (later than the captured value
+--   --         above), archived_at NULL, rejection_reason NULL,
+--   --         moderated_at/moderated_by EXACTLY EQUAL to what was captured
+--   --         before restoring (preserved, not cleared — documented decision).
+--   select moderated_at, moderated_by, published_at, archived_at, rejection_reason
+--     from public.listings where id = :id;
+-- rollback;
+
+-- ── Scenario 5: client cannot forge lifecycle fields ────────────────────
+-- begin;
+--   -- as owner, attempt to smuggle a fake pending_review_at/moderated_at
+--   -- directly in the same UPDATE that submits for review:
+--   update public.listings
+--     set status = 'pending_review',
+--         pending_review_at = '2000-01-01',
+--         moderated_at = now(),
+--         moderated_by = '<owner-uuid>'   -- pretending to be self-approved
+--     where id = :id;
+--   -- expect: pending_review_at is the REAL now() (not 2000-01-01),
+--   --         moderated_at/moderated_by are NULL (not the forged values) —
+--   --         the trigger's reset-to-OLD/now()/null happens AFTER any
+--   --         client-supplied NEW.* value, unconditionally.
+--   select pending_review_at, moderated_at, moderated_by from public.listings where id = :id;
+-- rollback;
+
+-- ── Scenario 6: INSERT cannot smuggle non-draft lifecycle state ─────────
+-- begin;
+--   insert into public.listings (owner_id, user_id, status, title, is_active, published_at, moderated_at, moderated_by)
+--     values ('<owner-uuid>', '<owner-uuid>', 'draft', 'Test', true, now(), now(), '<owner-uuid>')
+--     returning id \gset
+--   -- expect: is_active = false (INSERT branch forces it), published_at/
+--   --         moderated_at/moderated_by all NULL despite being sent non-null —
+--   --         every one of the six fields is forced to NULL on INSERT,
+--   --         unconditionally, before OLD is ever referenced.
+--   select is_active, published_at, moderated_at, moderated_by from public.listings where id = :id;
+-- rollback;

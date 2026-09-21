@@ -41,13 +41,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           minHeight: '100dvh',
           background: '#0F1117',
         }}>
-          <div style={{
+          <div className="app-shell" style={{
             width: '100%',
-            maxWidth: 430,
             background: '#0F1117',
             minHeight: '100dvh',
             position: 'relative',
-            overflowX: 'hidden',
           }}>
             <ClientOnly>{children}</ClientOnly>
           </div>
